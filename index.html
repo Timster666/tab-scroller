@@ -1,0 +1,1761 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tab Scroller</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1b1f24">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --ink:#1b1f24; --panel:#23282e; --panel2:#2b3138; --line:#3a424b;
+  --chalk:#ebe7dd; --mute:#8f98a2; --dash:#5a636d;
+  --green:#4fcf85; --greenbg:rgba(79,207,133,.20);
+  --amber:#f0bf4c; --amberbg:rgba(240,191,76,.40);
+  --steel:#86b0dc; --red:#e0705f;
+  --mono: ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --cw:2.4ch;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--ink);color:var(--chalk);font:14px/1.45 var(--sans)}
+button,input,textarea,select{font:inherit;color:inherit}
+button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer;white-space:nowrap}
+button:hover:not(:disabled){border-color:var(--mute)}
+button:disabled{opacity:.35;cursor:default}
+button.primary{background:var(--steel);color:#0f1720;border-color:transparent;font-weight:600}
+button.primary:hover{filter:brightness(1.08)}
+button.danger:hover{color:var(--red);border-color:var(--red)}
+button.icon{padding:4px 9px}
+button.link{background:none;border:none;padding:0;color:var(--steel);text-decoration:underline;text-underline-offset:2px}
+button.wide{width:100%}
+:focus-visible{outline:2px solid var(--steel);outline-offset:2px}
+select{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
+
+/* ---------- Layout ---------- */
+#app{display:grid;grid-template-columns:230px 1fr;height:100%}
+#sidebar{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.brand{padding:16px 16px 4px;font-weight:700;font-size:16px;letter-spacing:.01em}
+.brand small{display:block;font-weight:400;color:var(--mute);font-size:12px}
+.folder{display:flex;align-items:baseline;gap:8px;font-size:13px}
+.fname{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.fname::before{content:"Folder: ";color:var(--dash)}
+.note{color:var(--mute);font-size:12px;margin:0}
+.sideacts{display:flex;gap:6px;padding:4px 16px 10px}
+.sideacts button{flex:1}
+#songList{list-style:none;margin:0;padding:6px 8px 16px;overflow:auto;flex:1;border-top:1px solid var(--line)}
+#songList li.none{color:var(--mute);padding:8px}
+.songbtn{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:6px;padding:7px 8px;white-space:normal}
+.songbtn:hover{background:var(--panel2)}
+li.active .songbtn{background:var(--panel2);border-color:var(--line);box-shadow:inset 3px 0 0 var(--steel)}
+.songbtn .meta{color:var(--mute);font-size:12px;white-space:nowrap}
+
+#main{overflow:auto;min-width:0}
+.songhead{position:sticky;top:0;z-index:2;background:var(--ink);border-bottom:1px solid var(--line);padding:14px 28px 10px;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.songtitle{flex:1 1 280px;min-width:0;font-size:24px;font-weight:700;background:transparent;border:1px solid transparent;border-radius:6px;padding:2px 8px;margin-left:-9px}
+.songtitle:hover{border-color:var(--line)}
+.songtitle:focus{border-color:var(--steel);outline:none;background:var(--panel)}
+.songacts{display:flex;gap:6px;flex-wrap:wrap}
+#status{flex-basis:100%;font-size:12px;color:var(--mute);min-height:1.2em}
+#status[data-kind="ok"]{color:var(--green)}
+#status[data-kind="warn"]{color:var(--amber)}
+#status[data-kind="err"]{color:var(--red)}
+.sections{padding:20px 28px 60vh;max-width:1200px}
+.empty{padding:60px 28px;max-width:560px}
+.empty h2{margin:0 0 8px;font-size:22px}
+.empty p{color:var(--mute);margin:0 0 18px}
+.empty .row{display:flex;gap:8px;flex-wrap:wrap}
+
+/* ---------- Sections ---------- */
+.section{border:1px solid var(--line);border-radius:8px;margin:0 0 18px;background:var(--panel)}
+.section.editing{border-color:var(--steel)}
+.section.flash{animation:flash 1s ease-out}
+@keyframes flash{from{box-shadow:0 0 0 3px var(--steel)}to{box-shadow:0 0 0 0 transparent}}
+.secbar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--line);background:var(--panel2);border-radius:8px 8px 0 0}
+.time{font:600 19px/1.2 var(--mono);width:4.4em;background:transparent;border:1px solid transparent;border-radius:5px;padding:3px 6px}
+.time:hover{border-color:var(--line)}
+.time:focus{border-color:var(--steel);background:var(--ink);outline:none}
+.time.bad{border-color:var(--red);color:var(--red)}
+.seclen{color:var(--mute);font-size:12px}
+.seclen.clash{color:var(--amber)}
+.grow{flex:1}
+.secbody{padding:14px 16px;display:flex;flex-direction:column;gap:14px}
+.section:not(.editing) .secbody{cursor:pointer}
+.section:not(.editing) .secbody:hover{background:rgba(255,255,255,.02)}
+.emptyblocks{color:var(--mute)}
+.addblocks{display:flex;gap:8px}
+.addsecrow{display:flex;gap:10px}
+.addsec{flex:1;padding:12px;border-style:dashed;background:transparent;color:var(--mute)}
+.addsec:hover{color:var(--chalk)}
+
+/* ---------- Blocks ---------- */
+.block.edit{border:1px dashed var(--line);border-radius:6px;padding:8px 10px 10px}
+.btool{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+.kind{font-size:12px;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+.btitle-in{flex:1 1 220px;min-width:120px;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px 8px;font-weight:600}
+.btitle-in:focus{border-color:var(--steel);outline:none}
+.cols{display:inline-flex;align-items:center;gap:4px}
+.colcount{font-size:12px;color:var(--mute);min-width:4.5em;text-align:center}
+.btitle{font-weight:700;margin-bottom:2px}
+.textblock{font-size:21px;font-weight:600;white-space:pre-wrap;line-height:1.3}
+.textblock.ph{color:var(--mute);font-weight:400;font-size:15px}
+.textin{width:100%;resize:vertical;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:6px 8px;font-size:21px;font-weight:600;line-height:1.3;min-height:2.4em}
+.textin:focus{border-color:var(--steel);outline:none}
+
+/* ---------- Tab grid ---------- */
+.tabwrap{overflow-x:auto;max-width:100%}
+.tab{display:inline-block;font:15px/1.55 var(--mono);padding:3px 2px;border-radius:4px}
+.trow{display:grid;grid-template-columns:1.8ch repeat(var(--cols),var(--cw));white-space:nowrap}
+.tab.editable .trow{grid-template-columns:2.4ch 1.8ch repeat(var(--cols),var(--cw))}
+.lbl{color:var(--mute)}
+.xstr{padding:0;border:none;background:none;color:var(--dash);font:inherit;line-height:1;width:2ch;text-align:left}
+.xstr:hover:not(:disabled){color:var(--red)}
+.xstr:disabled{opacity:.25}
+.cell{text-align:center;border-radius:3px}
+.cell.dash{color:var(--dash)}
+.tab.editable{outline:none}
+.tab.editable .cell{cursor:pointer}
+.tab.editable .cell:hover{background:rgba(255,255,255,.08)}
+.tab.editable .cell.sel{background:var(--greenbg);color:var(--chalk)}
+.tab.editable:focus .cell.sel{background:var(--green);color:#0c1a12;font-weight:700}
+.tab.editable:focus{box-shadow:0 0 0 1px var(--line)}
+.hint{font-size:12px;color:var(--mute);margin-top:4px}
+
+/* ---------- Perform / preview ---------- */
+#perform{position:fixed;inset:0;z-index:20;background:#15181b;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
+#perform[hidden]{display:none}
+.pbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--line);font-size:13px}
+.pbar .ptitle{font-weight:700;font-size:20px;line-height:1.2;margin:0 6px;max-width:28ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pclock{font:600 20px var(--mono);min-width:7ch;text-align:center}
+.pbar label{display:inline-flex;align-items:center;gap:4px;color:var(--mute)}
+.pkey{color:var(--mute);font:12px var(--mono);min-width:12ch}
+.pbar details{position:relative}
+.pbar summary{cursor:pointer;color:var(--steel);list-style:none;padding:4px 6px}
+.pbar summary::-webkit-details-marker{display:none}
+.keys{position:absolute;right:0;top:100%;margin-top:6px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 14px;width:300px;z-index:3;line-height:1.7}
+.keys kbd{font:12px var(--mono);border:1px solid var(--line);border-radius:4px;padding:0 5px;background:var(--ink)}
+.pstage{flex:1;min-height:0;display:flex;justify-content:center;align-items:center;padding:12px}
+.pframe{flex:none;background:var(--pbg);border:1px solid var(--line);border-radius:10px;overflow:hidden;position:relative}
+#perform:fullscreen .pstage{padding:0}
+#perform:fullscreen .pframe{border:none;border-radius:0}
+#perform{--pfg:#f1eee6;--pbg:#0f1214;--ptime:#8f98a2;--ptitle:.8;--ptext:1.35;--pactive:#1c382b;--pwarn:#69572a;--pdash:#656664}
+#perform.live .nolive{display:none}
+/* live bar order: Title (2 / 5) - Timer, then Play */
+#perform.live .pbar > *{order:2}
+#perform.live #pTitle,#perform.live #pClock{order:0}
+#perform.live #pPlay{order:1;margin-left:8px;min-width:5.5em}
+/* live: top bar shows the state at a glance: dark red = idle, dark green = running (pulses 3 times on start) */
+#perform.live .pbar{background:#5c1f1b;border-bottom-color:#7a2a24;transition:background-color .2s}
+#perform.live.playing .pbar{background:#1c4a2e;border-bottom-color:#2a6a42;animation:livePulse .45s ease-in-out 6 alternate}
+@keyframes livePulse{from{background-color:#1c4a2e}to{background-color:#2f8f55}}
+#pContent{position:relative;padding:.6em 2.5% 0;will-change:transform}
+.pview{color:var(--pfg)}
+.psec{padding:.45em 1ch .6em;border-radius:.3em;margin-bottom:.35em;cursor:pointer;transition:background-color .3s}
+.psec.current{background:var(--pactive)}
+.psec.warn{background-color:var(--pwarn);animation:warn var(--pwarnDur,3s) ease-in-out 1 both}
+.sample .psec.warn{animation-iteration-count:infinite}
+/* fast fade in, then two slow, smooth pulses down to a see-through version (spread over the warning time) */
+@keyframes warn{
+  0%{background-color:transparent}
+  8%{background-color:var(--pwarn)}
+  30%{background-color:color-mix(in srgb,var(--pwarn) 35%,transparent)}
+  52%{background-color:var(--pwarn)}
+  74%{background-color:color-mix(in srgb,var(--pwarn) 35%,transparent)}
+  96%,100%{background-color:var(--pwarn)}
+}
+.ptime{font:600 .62em var(--mono);color:var(--ptime);margin-bottom:.2em}
+button.ptime{display:inline-block;background:none;border:none;padding:0 .25em;margin-left:-.25em;border-radius:.2em;cursor:text}
+button.ptime:hover{background:rgba(255,255,255,.1);text-decoration:underline dotted}
+.ptedit{display:inline-flex;gap:6px;align-items:center;font-size:14px}
+.phead{display:flex;align-items:center;gap:8px;margin-bottom:.2em;min-height:22px}
+.phead .ptime{margin-bottom:0}
+.pact{font:12px/1.2 var(--sans);padding:2px 9px;opacity:.5}
+.psec:hover .pact,.pact:focus-visible{opacity:1}
+.ptinput{font:600 15px var(--mono);width:5.2em;background:var(--ink);color:var(--chalk);border:1px solid var(--steel);border-radius:4px;padding:2px 6px}
+.ptinput.bad{border-color:var(--red);color:var(--red)}
+.ptnow{padding:2px 9px;font-size:13px}
+.ptrack{color:var(--mute);font-size:12px;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.psec .pblock + .pblock,.psec .pblock + .textblock,.psec .textblock + .pblock,.psec .textblock + .textblock{margin-top:.5em}
+.psec .tab{font-size:1em;line-height:1.42;padding:0}
+.psec .lbl{color:color-mix(in srgb,var(--pfg) 55%,var(--pbg))}
+.psec .cell.dash{color:var(--pdash)}
+.psec .btitle{font-size:calc(var(--ptitle) * 1em)}
+.psec .textblock{font-size:calc(var(--ptext) * 1em)}
+
+/* ---------- Settings ---------- */
+.sidefoot{padding:10px 16px;border-top:1px solid var(--line)}
+.liverow{padding:0 16px 12px}
+#liveBtn,#pedalBtn{padding:14px 11px;font-size:17px}
+#liveBtn,#pedalBtn{min-height:54px}
+#pedalBtn{margin-bottom:10px;color:#fff;font-weight:600;font-size:14px;white-space:normal;padding-left:6px;padding-right:6px}
+.samples .sample{font-size:12px;overflow:hidden}
+.samples > div{min-width:0}
+#pedalBtn.poff{background:#7c2b25;border-color:#c9483c;animation:pedalPulse 1.4s ease-in-out infinite alternate}
+#pedalBtn.pon{background:#1e7443;border-color:#2fa864}
+@keyframes pedalPulse{from{opacity:1}to{opacity:.55}}
+.psec.selected{box-shadow:inset 0 0 0 3px var(--psel)}
+.pframe{touch-action:none}
+.ctable{display:grid;grid-template-columns:250px 150px 150px;align-items:center;gap:8px 12px;margin:14px 0 4px}
+.ctable .ch{font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.06em}
+.ctable input[type=color]{width:46px;height:30px;padding:0 2px;border:1px solid var(--line);border-radius:5px;background:var(--ink);cursor:pointer;vertical-align:middle}
+.ctable .hex{font:12px var(--mono);color:var(--mute);margin-left:6px}
+.samples{display:flex;gap:16px;flex-wrap:wrap}
+.samples > div{flex:1 1 300px;max-width:430px}
+.samples .sample{max-width:none}
+.samplelabel{font-size:12px;color:var(--mute);margin-bottom:6px}
+.sgroup{margin:26px 0 4px;font-weight:700;font-size:15px}
+.fname2{font:13px var(--mono);color:var(--chalk)}
+.steps{line-height:1.7;padding-left:20px;max-width:64ch;margin:14px 0}
+.pedalrow{display:flex;gap:14px;margin:18px 0;flex-wrap:wrap}
+.pkeybox{flex:1 1 200px;max-width:260px;border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:var(--panel);transition:background-color .15s}
+.pkeybox.learn{border-color:var(--amber);box-shadow:0 0 0 2px var(--amber)}
+.pkeybox.hit{background:var(--green)}
+.pkeybox.hit *{color:#0c1a12 !important}
+.pkl,.pkd{font-size:12px;color:var(--mute)}
+.pkv{font:600 18px var(--mono);margin:6px 0}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+#songList li{position:relative}
+#songList li.dragging{opacity:.4}
+#songList li.drop-before::before,#songList li.drop-after::after{content:"";position:absolute;left:6px;right:6px;height:2px;background:var(--steel);border-radius:2px}
+#songList li.drop-before::before{top:-1px}
+#songList li.drop-after::after{bottom:-1px}
+.songbtn .num{color:var(--dash);font:12px var(--mono);min-width:2.2ch;padding-top:2px}
+.songbtn .stitle{flex:1}
+.songbtn{cursor:grab}
+.ptitle .pos{margin-left:8px}
+.sidefoot button.on{border-color:var(--steel);box-shadow:inset 3px 0 0 var(--steel)}
+.settings{padding:24px 28px 80px;max-width:780px}
+.settings h2{margin:0 0 4px;font-size:24px}
+.settings .lead{color:var(--mute);margin:0 0 6px;max-width:62ch}
+.srow{display:grid;grid-template-columns:250px 1fr;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.srow .ctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.srow input[type=range]{flex:1;max-width:280px;accent-color:var(--steel)}
+.srow input[type=number]{width:5em;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px 6px}
+.srow input[type=color]{width:46px;height:30px;padding:0 2px;border:1px solid var(--line);border-radius:5px;background:var(--ink);cursor:pointer}
+.sval{font:13px var(--mono);color:var(--mute)}
+.sunit{color:var(--mute)}
+.sampletitle{margin:26px 0 8px;font-weight:600}
+.sample{border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:17px;background:var(--pbg);max-width:560px}
+.settings .reset{margin-top:18px}
+.pempty{color:var(--mute);padding:1em}
+@media (prefers-reduced-motion:reduce){
+  .section.flash{animation:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">Tab Scroller<small>Song editor</small></div>
+    <div class="sideacts">
+      <button id="newSongBtn">New song</button>
+      <button id="importBtn" title="Import song files, the setlist file and the settings file (you can select them all at once)">Import</button>
+      <input id="importInput" type="file" accept=".json,application/json" multiple hidden>
+    </div>
+    <div class="liverow"><button id="liveBtn" class="primary wide" title="Play the list from the selected song (drag songs to change the order)">▶ Live</button></div>
+    <ul id="songList"></ul>
+    <div class="sidefoot"><button id="pedalBtn" class="wide poff" title="Foot pedal setup">● Pedal not connected</button><button id="settingsBtn" class="wide">Settings</button></div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<div id="perform" hidden>
+  <div class="pbar">
+    <span class="ptitle" id="pTitle"></span>
+    <button id="pRestart" class="icon nolive" title="Back to 00:00 (Home)">⏮</button>
+    <button id="pBack" class="icon nolive" title="Back 5 seconds (←)">−5s</button>
+    <button id="pPlay" class="primary" title="Play / pause (Space)">Play</button>
+    <button id="pFwd" class="icon nolive" title="Forward 5 seconds (→)">+5s</button>
+    <span class="pclock" id="pClock">00:00.0</span>
+    <span class="grow"></span>
+    <label class="nolive">Warn <select id="pWarn"></select> s</label>
+    <label>Screen <select id="pFrameSel">
+      <option value="r34">Tablet portrait 3:4 (iPad)</option>
+      <option value="r1016">Tablet portrait 10:16</option>
+      <option value="r43">Tablet landscape 4:3 (iPad)</option>
+      <option value="r1610">Tablet landscape 16:10</option>
+      <option value="fill">Fill window</option>
+    </select></label>
+    <button id="pMute" class="nolive" title="Mute or unmute the backing track (M)">🔊 Sound on</button>
+    <span class="ptrack nolive" id="pTrack">No track</span>
+    <button id="pTheme" title="Switch between dark and light mode">☾ Dark</button>
+    <button id="pFS">Fullscreen</button>
+    <span class="pkey nolive" id="pKey" title="Shows the last key received. Use this to see what your pedal sends.">Key: –</span>
+    <button id="pClose" title="Close (Esc)">Close</button>
+  </div>
+  <div class="pstage"><div class="pframe" id="pFrame"><div id="pContent" class="pview"></div></div></div>
+</div>
+
+<script>
+'use strict';
+/* ================= Basics ================= */
+const LABELS = ['1','2','3','4','5','6']; // top line = string 1 (thin E), bottom = string 6
+const FRAMES = { r34: 3 / 4, r1016: 10 / 16, r43: 4 / 3, r1610: 16 / 10, fill: 0 };
+const SETTINGS_FILE = '_tab-scroller-settings.json';
+const SETLIST_FILE = '_tab-scroller-setlist.json';
+const THEME_KEYS = ['fg', 'bg', 'timeColor', 'dashColor', 'activeBg', 'warnBg'];
+const DEFAULT_SETTINGS = {
+  titleScale: 80, textScale: 135, hold: 10, warn: 3, frame: 'r34', mute: false, theme: 'dark',
+  dark:  { fg: '#f1eee6', bg: '#0f1214', timeColor: '#8f98a2', dashColor: '#656664', activeBg: '#1c382b', warnBg: '#69572a' },
+  light: { fg: '#1d2126', bg: '#f7f5f0', timeColor: '#6b7280', dashColor: '#b8b4aa', activeBg: '#cdecd9', warnBg: '#f3d27a' },
+  pedalLeft: 'ArrowLeft', pedalRight: 'ArrowRight'
+};
+const DEFAULT_COLS = 40, MIN_COLS = 4, MAX_COLS = 200;
+const FORMAT = 'tab-scroller-song';
+const $ = (sel, root = document) => root.querySelector(sel);
+const uid = () => Math.random().toString(36).slice(2, 10);
+const deep = o => JSON.parse(JSON.stringify(o));
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k === 'value') el.value = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid.nodeType ? kid : document.createTextNode(kid));
+  }
+  return el;
+}
+
+/* ================= Time ================= */
+function fmt(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
+}
+function fmtClock(t) {
+  t = Math.max(0, t);
+  const m = Math.floor(t / 60), r = t - m * 60;
+  return String(m).padStart(2, '0') + ':' + r.toFixed(1).padStart(4, '0');
+}
+function parseTime(str) {
+  str = String(str).trim();
+  let m = str.match(/^(\d+)[:.](\d{1,2})$/);
+  if (m) { const s = +m[2]; return s > 59 ? null : +m[1] * 60 + s; }
+  if (/^\d+$/.test(str)) return +str;
+  return null;
+}
+
+/* ================= Model ================= */
+function mkTab(cols = DEFAULT_COLS) {
+  return { id: uid(), type: 'tab', title: '', labels: [...LABELS], cols, strings: LABELS.map(() => Array(cols).fill('')) };
+}
+function mkText() { return { id: uid(), type: 'text', text: '' }; }
+function mkSection(time, type = 'tab', cols = DEFAULT_COLS) { return { id: uid(), time, blocks: [type === 'text' ? mkText() : mkTab(cols)] }; }
+function mkSong(title) { return { id: uid(), title, sections: [mkSection(0)], _file: null }; }
+function reId(sec) { const s = deep(sec); s.id = uid(); s.blocks.forEach(b => b.id = uid()); return s; }
+function sortSecs(song) { song.sections.sort((a, b) => a.time - b.time); }
+function maxTime(song) { return song.sections.reduce((m, s) => Math.max(m, s.time), -1); }
+
+function fromFile(o) {
+  const song = { id: uid(), title: String(o.title || 'Untitled'), sections: [], _file: null };
+  for (const s of (Array.isArray(o.sections) ? o.sections : [])) {
+    const sec = { id: uid(), time: Math.max(0, Math.round(+s.time || 0)), blocks: [] };
+    for (const b of (Array.isArray(s.blocks) ? s.blocks : [])) {
+      if (b.type === 'text') { sec.blocks.push({ id: uid(), type: 'text', text: String(b.text || '') }); continue; }
+      const cols = clamp(Math.round(+b.cols || (b.strings && b.strings[0] && b.strings[0].length) || DEFAULT_COLS), MIN_COLS, MAX_COLS);
+      let labels = Array.isArray(b.labels) && b.labels.length >= 1 && b.labels.length <= 6 ? b.labels.map(String) : [...LABELS];
+      // files from the earlier version numbered the lines 6..1 from the top; renumber them 1..6
+      if (labels.length > 1 && labels.every((l, i) => i === 0 || +l === +labels[i - 1] - 1)) labels = labels.map(l => String(7 - +l));
+      const strings = labels.map((_, i) => {
+        const row = Array.isArray(b.strings && b.strings[i]) ? b.strings[i] : [];
+        return Array.from({ length: cols }, (_, c) => row[c] == null ? '' : String(row[c]).replace(/[^0-9]/g, '').slice(0, 2));
+      });
+      sec.blocks.push({ id: uid(), type: 'tab', title: String(b.title || ''), labels, cols, strings });
+    }
+    song.sections.push(sec);
+  }
+  sortSecs(song);
+  return song;
+}
+function toFile(song) {
+  return {
+    format: FORMAT, version: 1, title: song.title,
+    sections: song.sections.map(s => ({
+      time: s.time,
+      blocks: s.blocks.map(b => b.type === 'text'
+        ? { type: 'text', text: b.text }
+        : { type: 'tab', title: b.title, labels: b.labels, cols: b.cols, strings: b.strings })
+    }))
+  };
+}
+// Pretty JSON, but keep each string's row of cells on one line
+function serialize(song) {
+  return JSON.stringify(toFile(song), null, 2)
+    .replace(/\[\s+("(?:[^"\\]|\\.)*"(?:,\s+"(?:[^"\\]|\\.)*")*)\s+\]/g, (m, inner) => '[' + inner.replace(/",\s+"/g, '","') + ']');
+}
+
+/* ================= State ================= */
+const S = {
+  dir: null, pendingDir: null,
+  // Laptop (Chrome/Edge): songs live in a folder on disk. Tablet (Android) or "#tablet" in the address:
+  // songs, setlist and settings are kept in this browser's own storage on the device.
+  fsOK: 'showDirectoryPicker' in window && !/tablet/i.test(location.hash),
+  local: !('showDirectoryPicker' in window) || /tablet/i.test(location.hash),
+  songs: [], curId: null, editSec: null, sel: null,
+  undo: {}, timers: {}, status: '', statusKind: '',
+  focusSecId: null, flashSecId: null, refocus: false,
+  view: 'song', settings: deep(DEFAULT_SETTINGS)
+};
+const cur = () => S.songs.find(s => s.id === S.curId) || null;
+
+function setStatus(text, kind = '') {
+  S.status = text; S.statusKind = kind;
+  const el = $('#status');
+  if (el) { el.textContent = text; el.dataset.kind = kind; }
+}
+
+/* ================= Undo ================= */
+function snap(song) {
+  const st = S.undo[song.id] || (S.undo[song.id] = []);
+  st.push(JSON.stringify({ title: song.title, sections: song.sections }));
+  if (st.length > 300) st.shift();
+}
+function undo() {
+  const song = cur(); if (!song) return;
+  const st = S.undo[song.id];
+  if (!st || !st.length) { setStatus('Nothing to undo'); return; }
+  const o = JSON.parse(st.pop());
+  song.title = o.title; song.sections = o.sections;
+  S.sel = null;
+  if (S.editSec && !song.sections.some(s => s.id === S.editSec)) S.editSec = null;
+  markDirty(song); render();
+}
+function change(song, fn, rerender = true) { snap(song); fn(); markDirty(song); if (rerender) render(); }
+// Snapshot once per focus session of a text field, on the first keystroke
+function typingHandlers(song, apply) {
+  let snapped = false;
+  return {
+    onfocus: () => { snapped = false; },
+    oninput: e => { if (!snapped) { snap(song); snapped = true; } apply(e.target.value, e.target); markDirty(song); }
+  };
+}
+
+/* ================= Files (folder on disk) ================= */
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('tab-scroller', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function kvGet(k) { const db = await idb(); return new Promise(res => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(undefined); }); }
+async function kvSet(k, v) { const db = await idb(); return new Promise(res => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = res; tx.onerror = res; }); }
+
+function safeName(title) {
+  return (title || '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Untitled';
+}
+function fileNameFor(song) {
+  const base = safeName(song.title);
+  let n = base + '.json';
+  if (song._file && song._file.toLowerCase() === n.toLowerCase()) return song._file;
+  const taken = new Set(S.songs.filter(s => s !== song && s._file).map(s => s._file.toLowerCase()));
+  taken.add(SETTINGS_FILE.toLowerCase()); taken.add(SETLIST_FILE.toLowerCase());
+  let i = 2;
+  while (taken.has(n.toLowerCase())) {
+    n = `${base} (${i++}).json`;
+    if (song._file && song._file.toLowerCase() === n.toLowerCase()) return song._file;
+  }
+  return n;
+}
+
+function markDirty(song) {
+  clearTimeout(S.timers[song.id]);
+  if (S.local) { saveLocalSoon(); return; }
+  if (!S.dir) { setStatus('Not saved: choose a songs folder first', 'warn'); return; }
+  setStatus('Saving…');
+  S.timers[song.id] = setTimeout(() => saveSong(song), 450);
+}
+let saveChain = Promise.resolve();
+function saveSong(song) { saveChain = saveChain.then(() => doSave(song)); return saveChain; }
+async function doSave(song) {
+  if (!S.dir || !S.songs.includes(song)) return;
+  const name = fileNameFor(song);
+  try {
+    const fh = await S.dir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(serialize(song));
+    await w.close();
+    const old = song._file; song._file = name;
+    if (old && old !== name) { try { await S.dir.removeEntry(old); } catch (e) { /* already gone */ } }
+    if (old !== name) saveSetlist();
+    setStatus('Saved to ' + name, 'ok');
+  } catch (e) {
+    console.error(e);
+    setStatus('Save failed: ' + e.message, 'err');
+  }
+}
+
+// Put the songs in setlist order (a list of file names); songs not in the list go last, alphabetically
+function orderSongs(order) {
+  const pos = new Map((Array.isArray(order) ? order : []).map((n, i) => [String(n).toLowerCase(), i]));
+  S.songs.sort((a, b) => {
+    const pa = a._file ? pos.get(a._file.toLowerCase()) : undefined, pb = b._file ? pos.get(b._file.toLowerCase()) : undefined;
+    if (pa != null && pb != null) return pa - pb;
+    if (pa != null) return -1;
+    if (pb != null) return 1;
+    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true });
+  });
+}
+
+/* ---------- device storage (tablet) ---------- */
+let localTimer = 0, localQuiet = false;
+function saveLocalSoon() {
+  clearTimeout(localTimer);
+  localTimer = setTimeout(async () => {
+    try {
+      S.songs.forEach(s => { if (!s._file) s._file = fileNameFor(s); });
+      await kvSet('library', { version: 1, songs: S.songs.map(s => ({ file: s._file, data: toFile(s) })), settings: S.settings });
+      if (!localQuiet) setStatus('Saved on this device', 'ok');
+      localQuiet = false;
+    } catch (e) { setStatus('Saving on this device failed: ' + e.message, 'err'); }
+  }, 300);
+}
+async function loadLocal() {
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* optional */ }
+  let lib = null;
+  try { lib = await kvGet('library'); } catch (e) { console.warn(e); }
+  if (lib) {
+    S.settings = cleanSettings(lib.settings);
+    S.songs = (lib.songs || []).map(x => { const s = fromFile(x.data); s._file = x.file; return s; });
+  } else S.settings.frame = 'fill';       // on the tablet, use the whole screen by default
+  S.curId = S.songs[0]?.id ?? null;
+  setStatus(S.songs.length ? `${S.songs.length} song${S.songs.length === 1 ? '' : 's'} on this device` : '', 'ok');
+}
+function clearLocal() {
+  if (!confirm('Remove all songs from this device? Your settings and pedal keys are kept.')) return;
+  S.songs = []; S.curId = null; S.editSec = null; S.sel = null; S.undo = {};
+  saveLocalSoon(); render();
+}
+
+async function initFolder() {
+  if (S.local) { await loadLocal(); render(); return; }
+  if (S.fsOK) {
+    try {
+      const hnd = await kvGet('dir');
+      if (hnd) {
+        const p = await hnd.queryPermission({ mode: 'readwrite' });
+        if (p === 'granted') { await openDir(hnd); return; }
+        S.pendingDir = hnd;
+      }
+    } catch (e) { console.warn(e); }
+  }
+  render();
+}
+async function pickFolder() {
+  try {
+    const hnd = await window.showDirectoryPicker({ id: 'tab-scroller-songs', mode: 'readwrite' });
+    await openDir(hnd);
+  } catch (e) { if (e.name !== 'AbortError') alert('Could not open that folder: ' + e.message); }
+}
+async function reconnect() {
+  const hnd = S.pendingDir; if (!hnd) return;
+  try { if ((await hnd.requestPermission({ mode: 'readwrite' })) === 'granted') await openDir(hnd); }
+  catch (e) { alert('Could not reopen the folder: ' + e.message); }
+}
+async function openDir(hnd) {
+  const unsaved = S.dir ? [] : S.songs.slice(); // songs made before a folder was chosen
+  await saveChain;
+  S.dir = hnd; S.pendingDir = null;
+  try { await kvSet('dir', hnd); } catch (e) { /* remembering is optional */ }
+  S.songs = [];
+  for await (const entry of hnd.values()) {
+    if (entry.kind !== 'file' || !/\.json$/i.test(entry.name) || entry.name === SETTINGS_FILE || entry.name === SETLIST_FILE) continue;
+    try {
+      const o = JSON.parse(await (await entry.getFile()).text());
+      if (!o || !Array.isArray(o.sections)) continue;
+      const song = fromFile(o); song._file = entry.name; S.songs.push(song);
+    } catch (e) { console.warn('Skipped', entry.name, e); }
+  }
+  try {
+    const fh = await hnd.getFileHandle(SETTINGS_FILE);
+    S.settings = cleanSettings(JSON.parse(await (await fh.getFile()).text()));
+  } catch (e) { saveSettings(); } // no settings file yet: write the current ones
+  // song order (the setlist); songs not in the list go last, alphabetically
+  let order = null;
+  try { const fh = await hnd.getFileHandle(SETLIST_FILE); order = JSON.parse(await (await fh.getFile()).text()).songs; } catch (e) { /* none yet */ }
+  orderSongs(order);
+  if (!order) saveSetlist();
+  for (const s of unsaved) { s._file = null; S.songs.push(s); saveSong(s); }
+  if (!cur()) S.curId = sortedSongs()[0]?.id ?? null;
+  S.editSec = null; S.sel = null;
+  setStatus(`Opened folder “${hnd.name}” with ${S.songs.length} song${S.songs.length === 1 ? '' : 's'}`, 'ok');
+  render();
+}
+
+/* ================= Settings ================= */
+function cleanSettings(o) {
+  const d = DEFAULT_SETTINGS, s = deep(d);
+  if (!o || typeof o !== 'object') return s;
+  const num = (v, a, b, def) => (v !== '' && v != null && Number.isFinite(+v)) ? clamp(+v, a, b) : def;
+  const col = (v, def) => /^#[0-9a-f]{6}$/i.test(v) ? v : def;
+  s.titleScale = num(o.titleScale, 40, 250, d.titleScale);
+  s.textScale = num(o.textScale, 50, 300, d.textScale);
+  for (const th of ['dark', 'light']) {
+    // older settings files kept the (dark) colors at the top level
+    const src = (o[th] && typeof o[th] === 'object') ? o[th] : (th === 'dark' ? o : {});
+    for (const k of THEME_KEYS) s[th][k] = col(src[k], d[th][k]);
+  }
+  s.theme = o.theme === 'light' ? 'light' : 'dark';
+  s.hold = num(o.hold, 0, 60, d.hold); s.warn = num(o.warn, 1, 10, d.warn);
+  s.frame = Object.prototype.hasOwnProperty.call(FRAMES, o.frame) ? o.frame : d.frame;
+  s.mute = o.mute === true;
+  s.pedalLeft = typeof o.pedalLeft === 'string' && o.pedalLeft ? o.pedalLeft : d.pedalLeft;
+  s.pedalRight = typeof o.pedalRight === 'string' && o.pedalRight ? o.pedalRight : d.pedalRight;
+  return s;
+}
+function applySettings(el, theme = S.settings.theme) {
+  if (!el) return;
+  const s = S.settings, c = s[theme];
+  el.style.setProperty('--pfg', c.fg); el.style.setProperty('--pbg', c.bg); el.style.setProperty('--ptime', c.timeColor);
+  el.style.setProperty('--pactive', c.activeBg); el.style.setProperty('--pwarn', c.warnBg); el.style.setProperty('--pdash', c.dashColor);
+  el.style.setProperty('--psel', theme === 'dark' ? '#ffffff' : c.fg);
+  el.style.setProperty('--ptitle', s.titleScale / 100); el.style.setProperty('--ptext', s.textScale / 100);
+  el.style.setProperty('--pwarnDur', s.warn + 's');
+}
+let settingsTimer = 0;
+function saveSettings() {
+  clearTimeout(settingsTimer);
+  if (S.local) { saveLocalSoon(); return; }
+  if (!S.dir) { setStatus('Settings not saved: choose a songs folder first', 'warn'); return; }
+  settingsTimer = setTimeout(() => {
+    saveChain = saveChain.then(async () => {
+      try {
+        const fh = await S.dir.getFileHandle(SETTINGS_FILE, { create: true });
+        const w = await fh.createWritable();
+        await w.write(JSON.stringify({ format: 'tab-scroller-settings', version: 1, ...S.settings }, null, 2));
+        await w.close();
+        setStatus('Settings saved', 'ok');
+      } catch (e) { setStatus('Saving settings failed: ' + e.message, 'err'); }
+    });
+  }, 400);
+}
+
+/* ================= Song actions ================= */
+const sortedSongs = () => S.songs.slice(); // the list order is the setlist order
+let setlistTimer = 0;
+function saveSetlist() {
+  clearTimeout(setlistTimer);
+  if (S.local) { saveLocalSoon(); return; }
+  if (!S.dir) return;
+  setlistTimer = setTimeout(() => {
+    saveChain = saveChain.then(async () => {
+      try {
+        const fh = await S.dir.getFileHandle(SETLIST_FILE, { create: true });
+        const w = await fh.createWritable();
+        await w.write(JSON.stringify({ format: 'tab-scroller-setlist', version: 1, songs: S.songs.map(x => x._file).filter(Boolean) }, null, 2));
+        await w.close();
+      } catch (e) { setStatus('Saving the song order failed: ' + e.message, 'err'); }
+    });
+  }, 300);
+}
+function moveSong(song, to) {
+  const from = S.songs.indexOf(song); if (from < 0) return;
+  S.songs.splice(from, 1);
+  if (from < to) to--;
+  S.songs.splice(clamp(to, 0, S.songs.length), 0, song);
+  saveSetlist(); renderSidebar();
+}
+function uniqueTitle(base) {
+  const titles = new Set(S.songs.map(s => s.title.toLowerCase()));
+  let t = base, i = 2;
+  while (titles.has(t.toLowerCase())) t = `${base} ${i++}`;
+  return t;
+}
+function addSongObj(song, editFirst, after) {
+  const at = after ? S.songs.indexOf(after) : -1;
+  if (at >= 0) S.songs.splice(at + 1, 0, song); else S.songs.push(song); S.curId = song.id; S.sel = null; S.view = 'song';
+  S.editSec = editFirst && song.sections[0] ? song.sections[0].id : null;
+  markDirty(song); render(); $('#main').scrollTop = 0;
+}
+function newSong() {
+  addSongObj(mkSong(uniqueTitle('New song')), true);
+  const t = $('#songTitle'); if (t) { t.focus(); t.select(); }
+}
+function dupSong(song) {
+  const c = fromFile(toFile(song)); c.title = uniqueTitle(song.title + ' copy');
+  addSongObj(c, false, song);
+}
+async function delSong(song) {
+  if (!confirm(`Delete “${song.title}”?` + (song._file ? `\nThis removes ${song._file} from the folder.` : ''))) return;
+  clearTimeout(S.timers[song.id]);
+  S.songs = S.songs.filter(s => s !== song);
+  delete S.undo[song.id];
+  saveSetlist();
+  if (S.dir && song._file) { try { await saveChain; await S.dir.removeEntry(song._file); } catch (e) { console.warn(e); } }
+  S.curId = sortedSongs()[0]?.id ?? null; S.editSec = null; S.sel = null;
+  setStatus(`Deleted “${song.title}”`, 'ok');
+  render();
+}
+function exportSong(song) {
+  const blob = new Blob([serialize(song)], { type: 'application/json' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: fileNameFor(song) });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+// Import any mix of song files, the setlist file and the settings file (e.g. a whole Songs folder at once)
+async function importFiles(files) {
+  const songsIn = [], errors = [];
+  let setlist = null, settings = null;
+  for (const f of files) {
+    try {
+      const o = JSON.parse(await f.text());
+      if (o && Array.isArray(o.sections)) songsIn.push([f.name, o]);
+      else if (o && (o.format === 'tab-scroller-setlist' || Array.isArray(o.songs))) setlist = o.songs;
+      else if (o && (o.format === 'tab-scroller-settings' || f.name === SETTINGS_FILE)) settings = o;
+      else throw new Error('not a Tab Scroller file');
+    } catch (e) { errors.push(`${f.name} (${e.message})`); }
+  }
+  let added = 0, replaced = 0;
+  for (const [name, o] of songsIn) {
+    const song = fromFile(o);
+    const i = S.songs.findIndex(x => x._file && x._file.toLowerCase() === name.toLowerCase());
+    if (i >= 0) {                                   // same file name: replace, keep its place in the list
+      const old = S.songs[i];
+      song._file = old._file;
+      if (S.curId === old.id) S.curId = song.id;
+      delete S.undo[old.id];
+      S.songs[i] = song; replaced++;
+    } else {
+      song._file = S.local ? name : null;
+      S.songs.push(song); added++;
+    }
+    if (!S.local) markDirty(song);
+  }
+  if (setlist) { orderSongs(setlist); saveSetlist(); }
+  if (settings) {
+    // pedal keys, screen shape and mute belong to the device, so keep this device's own
+    const keep = { pedalLeft: S.settings.pedalLeft, pedalRight: S.settings.pedalRight, frame: S.settings.frame, mute: S.settings.mute };
+    S.settings = Object.assign(cleanSettings(settings), keep);
+    saveSettings(); applySettings($('#perform'));
+  }
+  if (S.local) { saveLocalSoon(); localQuiet = true; }
+  if (!cur()) S.curId = S.songs[0]?.id ?? null;
+  S.editSec = null; S.sel = null;
+  render();
+  const parts = [];
+  if (added) parts.push(`${added} new song${added === 1 ? '' : 's'}`);
+  if (replaced) parts.push(`${replaced} updated song${replaced === 1 ? '' : 's'}`);
+  if (setlist) parts.push('song order');
+  if (settings) parts.push('settings');
+  setStatus(parts.length ? 'Imported ' + parts.join(', ') : 'Nothing imported', parts.length ? 'ok' : 'warn');
+  if (errors.length) alert('These files could not be imported:\n' + errors.join('\n'));
+}
+
+function exampleSong() {
+  const tab = (title, cols, notes) => {
+    const b = mkTab(cols); b.title = title;
+    for (const [s, c, f] of notes) b.strings[s][c] = f;
+    return b;
+  };
+  const text = t => Object.assign(mkText(), { text: t });
+  const song = { id: uid(), title: uniqueTitle('Example song'), _file: null, sections: [] };
+  const sec = (time, ...blocks) => song.sections.push({ id: uid(), time, blocks });
+  sec(0, text('Intro: count in, drums alone for 4 bars'));
+  sec(8, tab('Intro riff x 2', 32, [[4,0,'0'],[4,2,'3'],[4,4,'5'],[3,6,'2'],[3,8,'5'],[2,10,'2'],[2,12,'4'],[4,16,'0'],[4,18,'3'],[4,20,'5'],[3,22,'2'],[3,24,'3'],[3,26,'2'],[4,28,'5']]));
+  sec(20, tab('Mid part x 4', 34, [[2,8,'5'],[3,3,'7'],[3,8,'3'],[3,15,'3'],[3,16,'2'],[3,23,'3'],[4,0,'5'],[4,3,'4'],[4,12,'1'],[4,22,'4'],[4,31,'12'],[5,0,'1'],[5,27,'0'],[5,29,'11']]));
+  sec(36,
+    tab('Verse lick (1/2)', 32, [[1,0,'8'],[0,2,'10'],[0,4,'12'],[1,6,'10'],[1,8,'8'],[2,10,'9'],[2,12,'7'],[1,16,'8'],[0,18,'10'],[0,20,'12'],[0,22,'15'],[0,26,'12']]),
+    tab('Verse lick (2/2)', 32, [[1,0,'10'],[1,2,'8'],[2,4,'9'],[2,6,'7'],[3,8,'9'],[3,10,'7'],[4,14,'10'],[4,16,'9'],[4,18,'7'],[5,24,'8']]));
+  sec(52, text('Chorus: strum G  C  D  x 2\nLet it ring on the last D'));
+  sec(70, tab('Outro, slow down', 24, [[5,0,'3'],[4,2,'2'],[3,4,'0'],[2,6,'0'],[1,8,'0'],[0,10,'3'],[5,14,'3'],[0,20,'3']]));
+  addSongObj(song, false);
+}
+
+/* ================= Section actions ================= */
+function lastCols(song) {
+  for (let i = song.sections.length - 1; i >= 0; i--) {
+    const b = [...song.sections[i].blocks].reverse().find(x => x.type === 'tab');
+    if (b) return b.cols;
+  }
+  return DEFAULT_COLS;
+}
+function addSection(song, type) {
+  change(song, () => { const s = mkSection(maxTime(song) + 1, type, DEFAULT_COLS); song.sections.push(s); S.editSec = s.id; S.focusSecId = s.id; });
+}
+function dupSection(song, sec) {
+  change(song, () => { const c = reId(sec); c.time = maxTime(song) + 1; song.sections.push(c); S.editSec = c.id; S.focusSecId = c.id; });
+}
+function delSection(song, sec) {
+  if (!confirm(`Delete the section at ${fmt(sec.time)}?`)) return;
+  change(song, () => { song.sections = song.sections.filter(s => s !== sec); if (S.editSec === sec.id) S.editSec = null; S.sel = null; });
+}
+function commitTime(song, sec, input) {
+  const t = parseTime(input.value);
+  if (t == null) {
+    input.classList.add('bad');
+    setStatus('Use MM:SS, for example 01:25', 'err');
+    setTimeout(() => { input.value = fmt(sec.time); input.classList.remove('bad'); }, 1000);
+    return;
+  }
+  input.value = fmt(t);
+  if (t === sec.time) return;
+  // defer so focus can move to the next field (Tab key) before re-rendering
+  setTimeout(() => change(song, () => { sec.time = t; sortSecs(song); S.flashSecId = sec.id; }), 0);
+}
+
+/* ================= Block actions ================= */
+const hasNotes = b => b.type === 'tab' ? (b.title.trim() || b.strings.some(r => r.some(v => v))) : b.text.trim();
+function addBlock(song, sec, type) {
+  change(song, () => {
+    sec.blocks.push(type === 'tab' ? mkTab(DEFAULT_COLS) : mkText());
+  });
+}
+function moveBlock(song, sec, i, d) {
+  const j = i + d; if (j < 0 || j >= sec.blocks.length) return;
+  change(song, () => { const a = sec.blocks; [a[i], a[j]] = [a[j], a[i]]; });
+}
+function dupBlock(song, sec, i) { change(song, () => { const c = deep(sec.blocks[i]); c.id = uid(); sec.blocks.splice(i + 1, 0, c); }); }
+function delBlock(song, sec, i) {
+  if (hasNotes(sec.blocks[i]) && !confirm('Delete this block?')) return;
+  change(song, () => { if (S.sel && S.sel.blockId === sec.blocks[i].id) S.sel = null; sec.blocks.splice(i, 1); });
+}
+const selIn = b => S.sel && S.sel.blockId === b.id;
+function insertCol(song, b) {
+  if (b.cols >= MAX_COLS) return;
+  const at = selIn(b) ? S.sel.c : b.cols;
+  change(song, () => { b.strings.forEach(r => r.splice(at, 0, '')); b.cols++; S.refocus = selIn(b); });
+}
+function removeCol(song, b) {
+  if (b.cols <= MIN_COLS) return;
+  const at = selIn(b) ? S.sel.c : b.cols - 1;
+  if (b.strings.some(r => r[at]) && !confirm('That column has notes in it. Remove it anyway?')) return;
+  change(song, () => {
+    b.strings.forEach(r => r.splice(at, 1)); b.cols--;
+    if (selIn(b)) { S.sel.c = Math.min(S.sel.c, b.cols - 1); S.refocus = true; }
+  });
+}
+
+/* ================= Tab grid ================= */
+function tabGrid(b, editable, song) {
+  const g = h('div', { class: 'tab' + (editable ? ' editable' : ''), 'data-block': b.id });
+  g.style.setProperty('--cols', b.cols);
+  g._off = editable ? 2 : 1;            // children before the first cell in each row
+  const rows = b.strings.length;
+  for (let s = 0; s < rows; s++) {
+    const row = h('div', { class: 'trow' });
+    if (editable) row.append(h('button', {
+      class: 'xstr', tabindex: '-1', disabled: rows <= 1,
+      title: rows > 1 ? 'Remove this string line' : 'A tab needs at least one string line',
+      onclick: () => removeString(song, b, s)
+    }, '×'));
+    row.append(h('span', { class: 'lbl' }, stringName(b.labels[s])));
+    for (let c = 0; c < b.cols; c++) {
+      const v = b.strings[s][c];
+      const sel = editable && selIn(b) && S.sel.s === s && S.sel.c === c;
+      row.append(h('span', { class: 'cell' + (v ? '' : ' dash') + (sel ? ' sel' : ''), 'data-s': s, 'data-c': c }, v || '-'));
+    }
+    g.append(row);
+  }
+  if (editable) {
+    g.tabIndex = 0;
+    g.addEventListener('mousedown', e => {
+      const cell = e.target.closest('.cell'); if (!cell) return;
+      e.preventDefault();
+      selectCell(g, b, +cell.dataset.s, +cell.dataset.c);
+      g.focus({ preventScroll: true });
+    });
+    g.addEventListener('keydown', e => gridKey(e, g, b, song));
+  }
+  return g;
+}
+// Stored labels are 1 = thin E (top line) … 6 = thick E (bottom line); on screen they're shown
+// the other way round, so the bottom line reads 1 and the top line reads 6.
+const stringName = l => /^[1-6]$/.test(l) ? String(7 - +l) : l;
+const cellEl = (g, s, c) => g.children[s].children[c + (g._off || 1)];
+function removeString(song, b, s) {
+  if (b.strings.length <= 1) return;
+  change(song, () => {
+    b.strings.splice(s, 1); b.labels.splice(s, 1);
+    if (selIn(b)) { if (S.sel.s === s) S.sel = null; else if (S.sel.s > s) { S.sel.s--; S.refocus = true; } }
+  });
+}
+// Space on an empty spot: everything from here to the right, on all strings, moves one step right
+function shiftRight(song, b) {
+  const c = S.sel.c;
+  change(song, () => {
+    b.strings.forEach(r => r.splice(c, 0, ''));
+    if (b.strings.every(r => !r[r.length - 1])) b.strings.forEach(r => r.pop()); // keep the width if the end is empty
+    else b.cols++;
+    S.refocus = true;
+  });
+}
+// Delete on an empty spot: everything to the right, on all strings, moves one step left
+function shiftLeft(song, b) {
+  const c = S.sel.c;
+  if (b.strings.some(r => r[c])) { setStatus('Can’t pull left here: another string has a note in this column', 'warn'); return; }
+  change(song, () => { b.strings.forEach(r => { r.splice(c, 1); r.push(''); }); S.refocus = true; });
+}
+function clearSel() { S.sel = null; document.querySelectorAll('.cell.sel').forEach(x => x.classList.remove('sel')); }
+function selectCell(g, b, s, c) {
+  clearSel();
+  S.sel = { blockId: b.id, s, c, pending: false };
+  const el = cellEl(g, s, c);
+  el.classList.add('sel');
+  el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+function paintCell(g, b, s, c) {
+  const el = cellEl(g, s, c), v = b.strings[s][c];
+  el.textContent = v || '-'; el.classList.toggle('dash', !v);
+}
+function gridKey(e, g, b, song) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key, rows = b.strings.length;
+  if (!selIn(b)) {
+    if (k.startsWith('Arrow')) { e.preventDefault(); selectCell(g, b, 0, 0); }
+    return;
+  }
+  const sel = S.sel, v = b.strings[sel.s][sel.c];
+  if (/^\d$/.test(k)) {
+    e.preventDefault();
+    // "1" or "2" followed by another digit makes a two-digit fret (10–29)
+    const nv = (sel.pending && (v === '1' || v === '2')) ? v + k : k;
+    snap(song);
+    b.strings[sel.s][sel.c] = nv;
+    sel.pending = nv.length === 1;
+    paintCell(g, b, sel.s, sel.c); markDirty(song);
+    return;
+  }
+  if (k === 'Backspace' || k === 'Delete') {
+    e.preventDefault(); sel.pending = false;
+    if (v) { snap(song); b.strings[sel.s][sel.c] = ''; paintCell(g, b, sel.s, sel.c); markDirty(song); }
+    else shiftLeft(song, b);
+    return;
+  }
+  if (k === ' ') {
+    e.preventDefault(); sel.pending = false;
+    if (v) selectCell(g, b, sel.s, Math.min(sel.c + 1, b.cols - 1));
+    else shiftRight(song, b);
+    return;
+  }
+  const mv = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[k];
+  if (mv) { e.preventDefault(); selectCell(g, b, clamp(sel.s + mv[0], 0, rows - 1), clamp(sel.c + mv[1], 0, b.cols - 1)); return; }
+  if (k === 'Escape') { clearSel(); g.blur(); }
+}
+
+/* ================= Rendering: sidebar ================= */
+function renderSidebar() {
+  $('#settingsBtn').classList.toggle('on', S.view === 'settings');
+  updatePedalBtn();
+  $('#liveBtn').disabled = !S.songs.length;
+  const ul = $('#songList'); ul.replaceChildren();
+  const clearDrop = () => ul.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+  S.songs.forEach((s, i) => {
+    const li = h('li', { class: s.id === S.curId && S.view === 'song' ? 'active' : '', draggable: 'true' },
+      h('button', {
+        class: 'songbtn', title: 'Drag to reorder (or Alt+↑ / Alt+↓)',
+        onclick: () => { if (S.curId !== s.id || S.view !== 'song') { S.curId = s.id; S.view = 'song'; S.editSec = null; S.sel = null; render(); $('#main').scrollTop = 0; } },
+        onkeydown: e => {
+          if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+          e.preventDefault();
+          const j = S.songs.indexOf(s) + (e.key === 'ArrowUp' ? -1 : 2);
+          moveSong(s, j);
+          ul.children[S.songs.indexOf(s)]?.querySelector('button')?.focus();
+        }
+      }, h('span', { class: 'num' }, (i + 1) + '.'), h('span', { class: 'stitle' }, s.title || 'Untitled'), h('span', { class: 'meta' }, fmt(maxTime(s) < 0 ? 0 : maxTime(s)))));
+    li.addEventListener('dragstart', e => { S.dragId = s.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', s.title); li.classList.add('dragging'); });
+    li.addEventListener('dragend', () => { S.dragId = null; li.classList.remove('dragging'); clearDrop(); });
+    li.addEventListener('dragover', e => {
+      if (!S.dragId) return;
+      e.preventDefault();
+      const r = li.getBoundingClientRect(), before = e.clientY < r.top + r.height / 2;
+      clearDrop(); li.classList.add(before ? 'drop-before' : 'drop-after');
+    });
+    li.addEventListener('drop', e => {
+      e.preventDefault();
+      const moving = S.songs.find(x => x.id === S.dragId); clearDrop();
+      if (!moving || moving === s) return;
+      const r = li.getBoundingClientRect(), before = e.clientY < r.top + r.height / 2;
+      moveSong(moving, S.songs.indexOf(s) + (before ? 0 : 1));
+    });
+    ul.append(li);
+  });
+  if (!S.songs.length) ul.append(h('li', { class: 'none' }, 'No songs yet'));
+}
+
+/* ================= Rendering: editor ================= */
+function renderMain() {
+  const main = $('#main');
+  const keepScroll = main.scrollTop;
+  main.replaceChildren();
+  if (S.view === 'settings') { main.append(renderSettings()); main.scrollTop = keepScroll; return; }
+  if (S.view === 'pedal') { main.append(renderPedal()); main.scrollTop = keepScroll; return; }
+  const song = cur();
+  if (!song) { main.append(emptyState()); return; }
+
+  const titleIn = h('input', Object.assign({
+    id: 'songTitle', class: 'songtitle', value: song.title, placeholder: 'Song title', spellcheck: 'false',
+    onkeydown: e => { if (e.key === 'Enter') e.target.blur(); }
+  }, typingHandlers(song, v => { song.title = v; renderSidebar(); })));
+
+  main.append(h('header', { class: 'songhead' },
+    titleIn,
+    h('div', { class: 'songacts' },
+      h('button', { class: 'primary', onclick: () => openPerform(song, 0) }, '▶ Preview'),
+      h('button', { onclick: () => dupSong(song) }, 'Duplicate'),
+      h('button', { onclick: () => exportSong(song), title: 'Download a copy of this song as .json' }, 'Export'),
+      h('button', { class: 'danger', onclick: () => delSong(song) }, 'Delete')),
+    h('div', { id: 'status', 'data-kind': S.statusKind }, S.status)));
+
+  const list = h('div', { class: 'sections' });
+  song.sections.forEach((sec, i) => list.append(renderSection(song, sec, i)));
+  list.append(h('div', { class: 'addsecrow' },
+    h('button', { class: 'addsec', title: 'New section at the end, starting with a tab block', onclick: () => addSection(song, 'tab') }, '+ Add Tab'),
+    h('button', { class: 'addsec', title: 'New section at the end, starting with a text block', onclick: () => addSection(song, 'text') }, '+ Add Text')));
+  main.append(list);
+  main.scrollTop = keepScroll;
+}
+
+function emptyState() {
+  if (S.local) {
+    return h('div', { class: 'empty' },
+      h('h2', null, 'No songs on this device yet'),
+      h('p', null, 'Copy your Songs folder from the laptop to this device, press Import and select all the files in it. The songs, the song order and your settings are then kept here, also without internet.'),
+      h('div', { class: 'row' },
+        h('button', { class: 'primary', onclick: () => $('#importInput').click() }, 'Import files'),
+        h('button', { onclick: exampleSong }, 'Add example song')));
+  }
+  if (S.fsOK && !S.dir) {
+    return h('div', { class: 'empty' },
+      h('h2', null, 'Choose a folder for your songs'),
+      h('p', null, 'Each song is saved there as its own .json file, ready to copy to the tablet. Make a new, empty folder, or pick the one you used last time.'),
+      h('div', { class: 'row' },
+        S.pendingDir ? h('button', { class: 'primary', onclick: reconnect }, `Reopen “${S.pendingDir.name}”`) : null,
+        h('button', { class: S.pendingDir ? '' : 'primary', onclick: pickFolder }, 'Choose songs folder')));
+  }
+  return h('div', { class: 'empty' },
+    h('h2', null, 'No songs yet'),
+    h('p', null, 'Start a new song, or add an example song to try the preview with.'),
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', onclick: newSong }, 'New song'),
+      h('button', { onclick: exampleSong }, 'Add example song')));
+}
+
+function renderSection(song, sec, i) {
+  const editing = S.editSec === sec.id;
+  const next = song.sections[i + 1];
+  const timeIn = h('input', {
+    class: 'time', value: fmt(sec.time), 'data-fk': 'time:' + sec.id, spellcheck: 'false', 'aria-label': 'Section start time',
+    title: 'Start time, MM:SS. Sections are ordered by this.',
+    onkeydown: e => {
+      if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+      if (e.key === 'Escape') { e.target.value = fmt(sec.time); e.target.blur(); }
+    },
+    onchange: e => commitTime(song, sec, e.target),
+    onclick: e => e.stopPropagation()
+  });
+  let lenText = 'last section', clash = false;
+  if (next) { const d = next.time - sec.time; clash = d === 0; lenText = clash ? 'same start time as the next section' : `${d} s`; }
+
+  const bar = h('div', { class: 'secbar' },
+    timeIn,
+    h('span', { class: 'seclen' + (clash ? ' clash' : '') }, lenText),
+    h('span', { class: 'grow' }),
+    h('button', { class: 'icon', title: 'Preview from this section', onclick: () => openPerform(song, sec.time) }, '▶'),
+    editing
+      ? h('button', { class: 'primary', onclick: () => { S.editSec = null; S.sel = null; render(); } }, 'Done')
+      : h('button', { onclick: () => { S.editSec = sec.id; render(); } }, 'Edit'),
+    h('button', { onclick: () => dupSection(song, sec) }, 'Duplicate'),
+    h('button', { class: 'danger', onclick: () => delSection(song, sec) }, 'Delete'));
+
+  const body = h('div', { class: 'secbody' });
+  if (!sec.blocks.length) body.append(h('div', { class: 'emptyblocks' }, editing ? 'Add a tab or text block below.' : 'No blocks yet. Click to edit.'));
+  sec.blocks.forEach((b, bi) => body.append(editing ? blockEdit(song, sec, b, bi) : blockView(b)));
+  if (editing) {
+    body.append(h('div', { class: 'addblocks' },
+      h('button', { onclick: () => addBlock(song, sec, 'tab') }, '+ Tab block'),
+      h('button', { onclick: () => addBlock(song, sec, 'text') }, '+ Text block')));
+  } else {
+    body.addEventListener('click', e => {
+      const cell = e.target.closest('.cell'), blk = e.target.closest('[data-block]');
+      S.editSec = sec.id;
+      if (cell && blk) { S.sel = { blockId: blk.dataset.block, s: +cell.dataset.s, c: +cell.dataset.c, pending: false }; S.refocus = true; }
+      render();
+    });
+  }
+  const cls = 'section' + (editing ? ' editing' : '') + (S.flashSecId === sec.id ? ' flash' : '');
+  return h('section', { class: cls, 'data-sec': sec.id }, bar, body);
+}
+
+function blockView(b) {
+  if (b.type === 'text') {
+    const t = b.text.trim();
+    return h('div', { class: 'block view', 'data-block': b.id }, h('div', { class: 'textblock' + (t ? '' : ' ph') }, t ? b.text : 'Empty text block'));
+  }
+  return h('div', { class: 'block view', 'data-block': b.id },
+    b.title ? h('div', { class: 'btitle' }, b.title) : null,
+    h('div', { class: 'tabwrap' }, tabGrid(b, false)));
+}
+
+function blockEdit(song, sec, b, i) {
+  const n = sec.blocks.length;
+  const isTab = b.type === 'tab';
+  const tools = h('div', { class: 'btool' },
+    h('span', { class: 'kind' }, isTab ? 'Tab' : 'Text'),
+    isTab
+      ? h('input', Object.assign({ class: 'btitle-in', value: b.title, placeholder: 'Title, e.g. Mid part x 4', spellcheck: 'false' },
+          typingHandlers(song, v => { b.title = v; })))
+      : h('span', { class: 'grow' }),
+    isTab ? h('span', { class: 'cols' },
+      h('button', { class: 'icon', title: 'Remove a column (the selected one, or the last)', disabled: b.cols <= MIN_COLS, onclick: () => removeCol(song, b) }, '−'),
+      h('span', { class: 'colcount' }, `${b.cols} columns`),
+      h('button', { class: 'icon', title: 'Insert a column (before the selected one, or at the end)', disabled: b.cols >= MAX_COLS, onclick: () => insertCol(song, b) }, '+')) : null,
+    h('button', { class: 'icon', title: 'Move up', disabled: i === 0, onclick: () => moveBlock(song, sec, i, -1) }, '↑'),
+    h('button', { class: 'icon', title: 'Move down', disabled: i === n - 1, onclick: () => moveBlock(song, sec, i, 1) }, '↓'),
+    h('button', { onclick: () => dupBlock(song, sec, i) }, 'Duplicate'),
+    h('button', { class: 'danger', onclick: () => delBlock(song, sec, i) }, 'Delete'));
+
+  let content;
+  if (isTab) {
+    content = [
+      h('div', { class: 'tabwrap' }, tabGrid(b, true, song)),
+      i === 0 ? h('div', { class: 'hint' }, 'Click a spot and type a fret (1 then 2 gives 12). Delete clears a note. On an empty spot, Space pushes everything to the right one step right, and Delete pulls it back left. × removes a string line. Ctrl+Z undoes.') : null
+    ];
+  } else {
+    const ta = h('textarea', Object.assign({ class: 'textin', rows: 2, value: b.text, placeholder: 'e.g. Chorus: strum G C D' },
+      typingHandlers(song, (v, el) => { b.text = v; autosize(el); })));
+    requestAnimationFrame(() => autosize(ta));
+    content = ta;
+  }
+  return h('div', { class: 'block edit', 'data-block': b.id }, tools, content);
+}
+function folderControls() {
+  if (S.local) return [
+    h('span', { class: 'sunit' }, 'Kept on this device'),
+    h('button', { onclick: () => $('#importInput').click() }, 'Import files'),
+    h('button', { class: 'danger', onclick: clearLocal }, 'Remove all songs')];
+  if (!S.fsOK) return [h('span', { class: 'sunit' }, 'This browser can’t save into a folder. Use Import and Export instead.')];
+  if (S.dir) return [h('span', { class: 'fname2' }, S.dir.name), h('button', { onclick: pickFolder }, 'Change folder')];
+  return [
+    S.pendingDir ? h('button', { class: 'primary', onclick: reconnect }, `Reopen “${S.pendingDir.name}”`) : null,
+    h('button', { class: S.pendingDir ? '' : 'primary', onclick: pickFolder }, 'Choose songs folder')];
+}
+function sampleSections() {
+  const t1 = mkTab(18); t1.title = 'Verse riff x 2'; t1.strings = t1.strings.slice(3); t1.labels = t1.labels.slice(3);
+  [[0, 0, '5'], [0, 3, '7'], [1, 5, '5'], [2, 8, '3'], [1, 10, '12'], [0, 14, '5']].forEach(([a, c, f]) => t1.strings[a][c] = f);
+  const t2 = mkTab(18); t2.title = 'Mid part x 4'; t2.strings = t2.strings.slice(2); t2.labels = t2.labels.slice(2);
+  [[0, 4, '5'], [1, 1, '7'], [2, 0, '5'], [3, 0, '1'], [2, 9, '12'], [3, 13, '0']].forEach(([a, c, f]) => t2.strings[a][c] = f);
+  const secs = [['00:36', 'psec', [t1]], ['00:52', 'psec current', [Object.assign(mkText(), { text: 'Chorus: strum G C D x 2' })]], ['01:10', 'psec warn', [t2]]];
+  return secs.map(([tm, cls, blocks]) => h('div', { class: cls }, h('div', { class: 'ptime' }, tm), blocks.map(perfBlock)));
+}
+function renderSettings() {
+  const s = S.settings;
+  const sd = h('div', { class: 'pview sample' }, sampleSections());
+  const sl = h('div', { class: 'pview sample' }, sampleSections());
+  const refresh = () => { applySettings(sd, 'dark'); applySettings(sl, 'light'); applySettings($('#perform')); };
+  const set = (k, v) => { S.settings[k] = v; refresh(); saveSettings(); };
+  const row = (label, k, ...ctl) => h('div', { class: 'srow' }, h('label', { for: 'set-' + k }, label), h('div', { class: 'ctl' }, ...ctl));
+  const range = (label, k, min, max) => {
+    const val = h('span', { class: 'sval' }, s[k] + '%');
+    return row(label, k, h('input', { id: 'set-' + k, type: 'range', min, max, step: 5, value: s[k],
+      oninput: e => { val.textContent = e.target.value + '%'; set(k, +e.target.value); } }), val);
+  };
+  const number = (label, k, min, max, unit) => row(label, k,
+    h('input', { id: 'set-' + k, type: 'number', min, max, step: 1, value: s[k],
+      onchange: e => { const v = clamp(Math.round(+e.target.value || 0), min, max); e.target.value = v; set(k, v); } }),
+    h('span', { class: 'sunit' }, unit));
+  const colorCell = (th, k) => {
+    const hex = h('span', { class: 'hex' }, s[th][k]);
+    return h('div', null, h('input', { type: 'color', value: s[th][k], 'aria-label': `${k} (${th} mode)`,
+      oninput: e => { S.settings[th][k] = e.target.value; hex.textContent = e.target.value; refresh(); saveSettings(); } }), hex);
+  };
+  const COLORS = [['Text color', 'fg'], ['Background color', 'bg'], ['Timestamp color', 'timeColor'], ['Tab dash color', 'dashColor'],
+    ['Active section background', 'activeBg'], ['Next section (warning) background', 'warnBg']];
+  const table = h('div', { class: 'ctable' },
+    h('div', { class: 'ch' }), h('div', { class: 'ch' }, 'Dark mode'), h('div', { class: 'ch' }, 'Light mode'),
+    COLORS.flatMap(([label, k]) => [h('div', null, label), colorCell('dark', k), colorCell('light', k)]));
+  refresh();
+
+  return h('div', { class: 'settings' },
+    h('h2', null, 'Settings'),
+    h('p', { class: 'lead' }, 'Sizes are relative to the tab text, which scales to fit the screen. Saved in your songs folder as ' + SETTINGS_FILE + '.'),
+    h('div', { id: 'status', 'data-kind': S.statusKind }, S.status),
+    h('div', { class: 'srow' }, h('label', null, S.local ? 'Songs' : 'Songs folder'), h('div', { class: 'ctl' }, ...folderControls())),
+    h('div', { class: 'srow' }, h('label', null, 'Keep screen awake'), h('div', { class: 'ctl' }, h('span', { id: 'awakeStatus', class: 'sunit' }, awakeText()))),
+    h('div', { class: 'sgroup' }, 'Playing'),
+    range('Tab title size', 'titleScale', 40, 250),
+    range('Text block size', 'textScale', 50, 300),
+    number('Keep previous section visible', 'hold', 0, 60, 'seconds into the current section'),
+    number('Warn before next section', 'warn', 1, 10, 'seconds'),
+    h('div', { class: 'sgroup' }, 'Colors'),
+    table,
+    h('div', { class: 'sampletitle' }, 'Samples'),
+    h('div', { class: 'samples' },
+      h('div', null, h('div', { class: 'samplelabel' }, 'Dark mode'), sd),
+      h('div', null, h('div', { class: 'samplelabel' }, 'Light mode'), sl)),
+    h('button', { class: 'reset', onclick: () => {
+      const keep = { frame: S.settings.frame, theme: S.settings.theme, mute: S.settings.mute, pedalLeft: S.settings.pedalLeft, pedalRight: S.settings.pedalRight };
+      S.settings = Object.assign(deep(DEFAULT_SETTINGS), keep); saveSettings(); render();
+    } }, 'Reset to defaults'));
+}
+
+/* ================= Foot pedal ================= */
+// The pedal pairs with Android as a Bluetooth keyboard; the app just listens for its keys.
+const PEDAL = { connected: false, learning: null };
+const KEYNAMES = { ArrowLeft: '← Left arrow', ArrowRight: '→ Right arrow', ArrowUp: '↑ Up arrow', ArrowDown: '↓ Down arrow', PageUp: 'Page Up', PageDown: 'Page Down', ' ': 'Space', Enter: 'Enter' };
+const keyName = k => KEYNAMES[k] || k;
+function pedalAct(k) {
+  if (k === S.settings.pedalLeft || k === 'ArrowLeft') return 'left';
+  if (k === S.settings.pedalRight || k === 'ArrowRight') return 'right';
+  return null;
+}
+function updatePedalBtn() {
+  const b = $('#pedalBtn');
+  b.classList.toggle('pon', PEDAL.connected); b.classList.toggle('poff', !PEDAL.connected);
+  b.textContent = PEDAL.connected ? '● Pedal connected' : '● Pedal not connected';
+}
+function renderPedal() {
+  const s = S.settings, L = PEDAL.learning;
+  const box = (side, label, what) => h('div', { class: 'pkeybox' + (L === side ? ' learn' : ''), id: 'pk-' + side },
+    h('div', { class: 'pkl' }, label),
+    h('div', { class: 'pkv' }, L === side ? 'Press it now…' : keyName(side === 'left' ? s.pedalLeft : s.pedalRight)),
+    h('div', { class: 'pkd' }, what));
+  return h('div', { class: 'settings' },
+    h('h2', null, 'Foot pedal'),
+    h('p', { class: 'lead' }, 'The pedal connects to the tablet as a Bluetooth keyboard, so the pairing itself happens in Android. After that, this app just listens for the keys the pedal sends.'),
+    h('div', { id: 'status', 'data-kind': S.statusKind }, S.status),
+    h('ol', { class: 'steps' },
+      h('li', null, 'On the pedal, set the mode switch to HORIZONTAL (left and right arrow keys) and turn it on.'),
+      h('li', null, 'On the tablet, open Settings → Connected devices → Pair new device, and choose the pedal.'),
+      h('li', null, 'Come back here, press Learn pedals, then press the left pedal and then the right pedal.')),
+    h('div', { class: 'pedalrow' },
+      box('left', 'Left pedal', 'Live: go to the previous song'),
+      box('right', 'Right pedal', 'Live: start the song, or go to the next song while playing')),
+    h('div', { class: 'btnrow' },
+      h('button', { class: 'primary', disabled: !!L, onclick: e => { e.currentTarget.blur(); PEDAL.learning = 'left'; render(); } }, L ? 'Listening…' : 'Learn pedals'),
+      L ? h('button', { onclick: () => { PEDAL.learning = null; render(); } }, 'Cancel') : null,
+      h('button', { onclick: () => { S.settings.pedalLeft = 'ArrowLeft'; S.settings.pedalRight = 'ArrowRight'; saveSettings(); render(); } }, 'Reset to arrow keys')),
+    h('p', { class: 'sunit', style: 'margin-top:18px;max-width:64ch' }, 'Pressing a pedal lights up its box. A web page can’t see Bluetooth connections directly, and a pedal key looks exactly like the same key on a keyboard. So on the tablet the status turns green when the first pedal key arrives; on the laptop it turns green once you have used Learn pedals. It stays green until the app is reloaded. The arrow keys on a keyboard always work too.'));
+}
+// returns true when the key press was used for learning
+function pedalKey(e) {
+  const k = e.key;
+  if (PEDAL.learning) {
+    if (['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(k)) return true;
+    e.preventDefault();
+    if (k === 'Escape') { PEDAL.learning = null; render(); return true; }
+    if (PEDAL.learning === 'left') { S.settings.pedalLeft = k; PEDAL.learning = 'right'; }
+    else {
+      if (k === S.settings.pedalLeft) { setStatus('That is the same key as the left pedal. Press the right pedal.', 'warn'); return true; }
+      S.settings.pedalRight = k; PEDAL.learning = null; PEDAL.connected = true;
+      setStatus('Pedals learned', 'ok'); saveSettings();
+    }
+    render();
+    return true;
+  }
+  if (k === S.settings.pedalLeft || k === S.settings.pedalRight) {
+    // a pedal key is indistinguishable from the same key on a keyboard, so on the laptop only
+    // "Learn pedals" turns the status green; on the tablet (no keyboard) any pedal press does
+    if (!PEDAL.connected && S.local) { PEDAL.connected = true; updatePedalBtn(); }
+    if (!P.open && S.view === 'pedal') {
+      const el = $('#pk-' + (k === S.settings.pedalLeft ? 'left' : 'right'));
+      if (el) { el.classList.add('hit'); setTimeout(() => el.classList.remove('hit'), 250); }
+    }
+  }
+  return false;
+}
+function autosize(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; }
+
+function render() {
+  const fk = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.fk : null;
+  renderSidebar();
+  renderMain();
+  S.flashSecId = null;
+  if (S.focusSecId) {
+    const el = $(`[data-sec="${S.focusSecId}"]`); S.focusSecId = null;
+    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); const t = el.querySelector('.time'); t.focus({ preventScroll: true }); t.select(); }
+  } else if (fk) {
+    const el = document.querySelector(`[data-fk="${CSS.escape(fk)}"]`);
+    if (el) { el.focus({ preventScroll: true }); if (el.select) el.select(); }
+  } else if (S.sel && S.refocus) {
+    const g = $(`.tab.editable[data-block="${S.sel.blockId}"]`);
+    if (g) { g.focus({ preventScroll: true }); const c = g.querySelector('.cell.sel'); if (c) c.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+  }
+  S.refocus = false;
+}
+
+/* ================= Perform / preview ================= */
+const P = { open: false, song: null, secs: [], els: [], tops: [], bots: [], t: 0, playing: false, start: 0, raf: 0, last: 0, cur: -2, warnIdx: -2, manual: 0, y: null, lastY: null, snap: true, wake: null };
+const pc = () => $('#pContent'), pframe = () => $('#pFrame');
+
+function perfBlock(b) {
+  if (b.type === 'text') return b.text.trim() ? h('div', { class: 'textblock' }, b.text) : null;
+  return h('div', { class: 'pblock' }, b.title ? h('div', { class: 'btitle' }, b.title) : null, tabGrid(b, false));
+}
+function buildPerform() {
+  const song = P.song;
+  P.secs = [...song.sections].sort((a, b) => a.time - b.time);
+  const content = pc(); content.replaceChildren();
+  P.els = P.secs.map(sec => {
+    if (P.mode === 'live') {
+      const el = h('div', { class: 'psec' }, h('div', { class: 'ptime' }, fmt(sec.time)), sec.blocks.map(perfBlock));
+      el.addEventListener('click', () => liveSelect(sec));
+      content.append(el);
+      return el;
+    }
+    const tbtn = h('button', { class: 'ptime', title: 'Change the start time' }, fmt(sec.time));
+    tbtn.addEventListener('click', e => { e.stopPropagation(); editPTime(sec, tbtn); });
+    const setBtn = h('button', { class: 'pact', title: 'Set this section to start at the current playback time' }, '⏱ Set to now');
+    setBtn.addEventListener('click', e => { e.stopPropagation(); setBtn.blur(); setTimeNow(sec); });
+    const dupBtn = h('button', { class: 'pact', title: 'Copy this section to start at the current playback time' }, '⧉ Duplicate to now');
+    dupBtn.addEventListener('click', e => { e.stopPropagation(); dupBtn.blur(); dupToNow(sec); });
+    const editBtn = h('button', { class: 'pact', title: 'Open this section in the editor' }, 'Edit');
+    editBtn.addEventListener('click', e => { e.stopPropagation(); editInEditor(sec); });
+    const el = h('div', { class: 'psec' }, h('div', { class: 'phead' }, tbtn, setBtn, dupBtn, editBtn), sec.blocks.map(perfBlock));
+    el.addEventListener('click', () => seek(sec.time));
+    content.append(el);
+    return el;
+  });
+  if (!P.secs.length) content.append(h('p', { class: 'pempty' }, 'This song has no sections yet.'));
+  P.cur = -2; P.warnIdx = -2;
+}
+// One click, in real time: this section now starts at the current playback time
+function dupToNow(sec) {
+  const t = Math.max(0, Math.round(P.t));
+  change(P.song, () => { const c = reId(sec); c.time = t; P.song.sections.push(c); sortSecs(P.song); });
+  buildPerform(); fitPerform();
+  $('#pKey').textContent = 'Copied to ' + fmt(t);
+}
+function setTimeNow(sec) {
+  const t = Math.max(0, Math.round(P.t));
+  if (t === sec.time) return;
+  change(P.song, () => { sec.time = t; sortSecs(P.song); });
+  buildPerform(); fitPerform();
+  $('#pKey').textContent = 'Set to ' + fmt(t);
+}
+function editInEditor(sec) {
+  const song = P.song;
+  closePerform();
+  S.view = 'song'; S.curId = song.id; S.editSec = sec.id; S.focusSecId = sec.id; S.sel = null;
+  render();
+}
+// Edit a section's start time right in the preview; "Now" takes the current playback time
+function editPTime(sec, btn) {
+  const inp = h('input', { class: 'ptinput', value: fmt(sec.time), spellcheck: 'false', 'aria-label': 'Section start time' });
+  const now = h('button', { class: 'ptnow', title: 'Use the current playback time' }, 'Now');
+  const wrap = h('span', { class: 'ptedit' }, inp, now);
+  let done = false;
+  const finish = ok => {
+    if (done) return;
+    if (ok) {
+      const t = parseTime(inp.value);
+      if (t == null) { inp.classList.add('bad'); inp.focus(); return; }
+      done = true;
+      if (t !== sec.time) {
+        change(P.song, () => { sec.time = t; sortSecs(P.song); });
+        buildPerform(); fitPerform();
+        return;
+      }
+    }
+    done = true;
+    wrap.replaceWith(btn);
+  };
+  inp.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  inp.addEventListener('input', () => inp.classList.remove('bad'));
+  inp.addEventListener('blur', () => setTimeout(() => { if (!done && document.activeElement !== inp) finish(parseTime(inp.value) != null); }, 200));
+  now.addEventListener('mousedown', e => e.preventDefault()); // keep the cursor in the field
+  now.addEventListener('click', e => { e.stopPropagation(); inp.value = fmt(Math.round(P.t)); inp.classList.remove('bad'); inp.focus(); });
+  wrap.addEventListener('click', e => e.stopPropagation());
+  btn.replaceWith(wrap);
+  inp.focus(); inp.select();
+}
+
+/* ---------- backing track: <song file name>.wav in the songs folder ---------- */
+async function loadTrack(song) {
+  dropTrack();
+  const label = $('#pTrack');
+  label.textContent = 'No track';
+  if (!S.dir || !song._file) { label.title = 'Save the song in a songs folder, then put a .wav with the same name next to it'; return; }
+  const base = song._file.replace(/\.json$/i, '');
+  label.title = `Put “${base}.wav” in the songs folder to play it along`;
+  let file = null;
+  try {
+    for await (const entry of S.dir.values()) {
+      if (entry.kind === 'file' && entry.name.toLowerCase() === (base + '.wav').toLowerCase()) { file = await entry.getFile(); break; }
+    }
+  } catch (e) { console.warn(e); }
+  if (!file || !P.open || P.song !== song) return;
+  const a = new Audio();
+  a.preload = 'auto';
+  a.muted = S.settings.mute;
+  a.src = URL.createObjectURL(file);
+  a.addEventListener('loadedmetadata', () => { if (P.audio !== a) return; a.currentTime = P.t; if (P.playing) a.play().catch(() => {}); });
+  P.audio = a;
+  label.textContent = file.name; label.title = 'Backing track: ' + file.name;
+}
+function dropTrack() {
+  const a = P.audio; if (!a) return;
+  P.audio = null;
+  a.pause(); URL.revokeObjectURL(a.src); a.removeAttribute('src'); a.load();
+}
+function setThemeBtn() { $('#pTheme').textContent = S.settings.theme === 'dark' ? '☾ Dark' : '☀ Light'; }
+function toggleTheme() { S.settings.theme = S.settings.theme === 'dark' ? 'light' : 'dark'; applySettings($('#perform')); setThemeBtn(); saveSettings(); }
+function setMuteBtn() { $('#pMute').textContent = S.settings.mute ? '🔇 Muted' : '🔊 Sound on'; }
+function toggleMute() { S.settings.mute = !S.settings.mute; if (P.audio) P.audio.muted = S.settings.mute; setMuteBtn(); saveSettings(); }
+
+function setPerfTitle() {
+  const t = $('#pTitle'); t.replaceChildren(P.song.title);
+  if (P.mode === 'live') t.append(h('span', { class: 'pos' }, `(${S.songs.indexOf(P.song) + 1} / ${S.songs.length}) -`));
+}
+function openPerform(song, from = 0, mode = 'preview') {
+  P.mode = mode;
+  $('#perform').classList.toggle('live', mode === 'live');
+  P.song = song;
+  buildPerform();
+  setPerfTitle();
+  setMuteBtn();
+  if (mode === 'live') dropTrack(); else loadTrack(song);
+  applySettings($('#perform'));
+  $('#pWarn').value = String(S.settings.warn);
+  $('#pFrameSel').value = S.settings.frame;
+  $('#perform').hidden = false;
+  P.open = true; P.playing = false; P.cur = -2; P.warnIdx = -2; P.last = 0; P.selected = null;
+  setThemeBtn();
+  setPlayBtn();
+  fitPerform();
+  seek(from);
+  cancelAnimationFrame(P.raf);
+  P.raf = requestAnimationFrame(tick);
+}
+function closePerform() {
+  pause(); P.open = false;
+  dropTrack();
+  cancelAnimationFrame(P.raf);
+  $('#perform').hidden = true;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (P.mode === 'live' && P.song && S.songs.includes(P.song)) {
+    S.curId = P.song.id; S.view = 'song'; S.editSec = null; S.sel = null; render();
+  }
+}
+/* ---------- live player: the song list is the setlist ---------- */
+function startLive() {
+  if (!S.songs.length) return;
+  openPerform(cur() || S.songs[0], 0, 'live');
+}
+function liveLoad(j) {
+  pause();
+  P.song = S.songs[clamp(j, 0, S.songs.length - 1)];
+  P.selected = null;
+  buildPerform(); setPerfTitle(); fitPerform();
+  seek(0); P.snap = true;
+}
+function liveSelect(sec) {
+  if (P.playing) return;                 // selecting only while the song is idle
+  P.selected = P.selected === sec ? null : sec;
+  P.els.forEach((el, i) => el.classList.toggle('selected', P.secs[i] === P.selected));
+}
+function clearLiveSelection() { P.selected = null; P.els.forEach(el => el.classList.remove('selected')); }
+// Right pedal: idle -> start (from the selected section if there is one); playing -> next song, idle
+function liveForward() {
+  const i = S.songs.indexOf(P.song);
+  if (!P.playing) {
+    if (P.selected) { seek(P.selected.time); clearLiveSelection(); }
+    play();
+  } else if (i < S.songs.length - 1) liveLoad(i + 1);
+}
+// Left pedal: previous song, idle (the first song just reloads)
+function liveBack() { liveLoad(S.songs.indexOf(P.song) - 1); }
+function liveScroll(d) { P.manual += d * pframe().clientHeight * 0.25; }
+
+let CH = 0;
+function chRatio() {
+  if (CH) return CH;
+  const s = h('span', { style: 'position:absolute;visibility:hidden;white-space:pre;font:100px var(--mono)' }, '0'.repeat(20));
+  document.body.append(s); CH = s.getBoundingClientRect().width / 2000; s.remove();
+  return CH || 0.6;
+}
+// One font size for the whole song, so the widest tab block just fits the screen width
+function sizeFrame() {
+  const stage = $('.pstage'), frame = pframe(), cs = getComputedStyle(stage);
+  const aw = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const ah = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const r = FRAMES[S.settings.frame] ?? FRAMES.r34;
+  let w = aw, hh = ah;
+  if (r) { w = Math.min(aw, ah * r); hh = w / r; }
+  frame.style.width = Math.floor(w) + 'px'; frame.style.height = Math.floor(hh) + 'px';
+}
+function fitPerform() {
+  if (!P.open) return;
+  sizeFrame();
+  const frame = pframe(), W = frame.clientWidth, H = frame.clientHeight;
+  let maxCols = 16;
+  P.secs.forEach(s => s.blocks.forEach(b => { if (b.type === 'tab') maxCols = Math.max(maxCols, b.cols); }));
+  const needCh = 1.8 + maxCols * 2.4 + 2.4;          // string label + cells + section padding
+  const px = clamp((W * 0.95) / (needCh * chRatio() + 0.45), 4, 46);
+  const content = pc();
+  content.style.fontSize = px + 'px';
+  content.style.paddingBottom = Math.round(H * 0.8) + 'px';
+  P.tops = P.els.map(el => el.offsetTop);
+  P.bots = P.els.map(el => el.offsetTop + el.offsetHeight);
+  P.snap = true;
+}
+
+function curIndex(t) { let c = -1; for (let i = 0; i < P.secs.length; i++) { if (t >= P.secs[i].time) c = i; else break; } return c; }
+function tick(now) {
+  const dt = P.last ? Math.min(0.1, (now - P.last) / 1000) : 0;
+  P.last = now;
+  if (P.playing) {
+    P.t = (now - P.start) / 1000;
+    // when a backing track is playing, it is the master clock
+    const a = P.audio;
+    if (a && !a.paused && !a.seeking && !a.ended && a.readyState >= 2 && Math.abs(a.currentTime - P.t) > 0.06) {
+      P.t = a.currentTime; P.start = now - P.t * 1000;
+    }
+  }
+  update(dt);
+  P.raf = requestAnimationFrame(tick);
+}
+function update(dt) {
+  const t = P.t, c = curIndex(t), n = c + 1 < P.secs.length ? c + 1 : -1;
+  if (c !== P.cur) { P.els[P.cur]?.classList.remove('current'); P.els[c]?.classList.add('current'); P.cur = c; }
+  const w = (n >= 0 && P.secs[n].time - t <= S.settings.warn) ? n : -1;
+  if (w !== P.warnIdx) {
+    P.els[P.warnIdx]?.classList.remove('warn');
+    const el = P.els[w];
+    if (el) {
+      // the pulse fills the time that is actually left, even when sections are closer together than the warning time
+      el.style.setProperty('--pwarnDur', Math.max(0.5, Math.min(S.settings.warn, P.secs[w].time - t)) + 's');
+      el.classList.add('warn');
+    }
+    P.warnIdx = w;
+  }
+  $('#pClock').textContent = fmtClock(t);
+  scrollFor(t, c, n, w >= 0, dt);
+}
+// Where the page wants to be, in order of priority (last rule wins):
+//  1. glide slowly toward the next section as the current one progresses
+//  2. keep the previous section in view for the first few seconds (settings: hold)
+//  3. when the next section is about to start, show its beginning
+//  4. the current section is ALWAYS fully in view (its top, if it's taller than the screen)
+function targetY(t, c, n, warning) {
+  if (!P.secs.length || c < 0) return 0;
+  const H = pframe().clientHeight, m = H * 0.03, anchor = H * 0.22;
+  let y;
+  if (n >= 0) {
+    const a = P.secs[c].time, b = P.secs[n].time;
+    const p = b > a ? clamp((t - a) / (b - a), 0, 1) : 1;
+    y = P.tops[c] + (P.tops[n] - P.tops[c]) * p - anchor;
+  } else y = P.tops[c] - anchor;
+  if (c > 0 && t - P.secs[c].time < S.settings.hold) y = Math.min(y, P.tops[c - 1] - m);
+  if (warning && n >= 0) y = Math.max(y, P.tops[n] + Math.min(P.bots[n] - P.tops[n], H * 0.35) - H + m);
+  const lo = P.bots[c] - H + m, hi = P.tops[c] - m;
+  return lo > hi ? hi : clamp(y, lo, hi);
+}
+function scrollFor(t, c, n, warning, dt) {
+  const H = pframe().clientHeight, max = Math.max(0, pc().scrollHeight - H);
+  const base = clamp(targetY(t, c, n, warning), 0, max);
+  const goal = clamp(base + P.manual, 0, max);
+  P.manual = goal - base;
+  // ease toward the goal so jumps (new section, end of hold, resync) become smooth moves
+  if (P.snap || P.y == null) { P.y = goal; P.snap = false; }
+  else P.y += (goal - P.y) * (1 - Math.exp(-dt / 0.35));
+  if (P.lastY == null || Math.abs(P.y - P.lastY) > 0.05) { pc().style.transform = `translate3d(0,${-P.y}px,0)`; P.lastY = P.y; }
+}
+
+function setPlayBtn() { $('#pPlay').textContent = P.playing ? 'Pause' : 'Play'; $('#perform').classList.toggle('playing', P.playing); }
+function play() {
+  if (P.playing) return;
+  P.playing = true; P.manual = 0; P.start = performance.now() - P.t * 1000;
+  const a = P.audio;
+  if (a && a.readyState >= 1) { a.currentTime = P.t; a.play().catch(e => { $('#pKey').textContent = 'Track: ' + e.message; }); }
+  setPlayBtn();
+}
+function pause() { if (!P.playing) return; P.playing = false; P.audio?.pause(); setPlayBtn(); }
+function togglePlay() { P.playing ? pause() : play(); }
+function seek(t) {
+  P.t = Math.max(0, t);
+  if (P.playing) P.start = performance.now() - P.t * 1000;
+  P.manual = 0;
+  const a = P.audio;
+  if (a && a.readyState >= 1) {
+    a.currentTime = Math.min(P.t, a.duration || P.t);
+    if (P.playing && a.paused && P.t < a.duration) a.play().catch(() => {});
+  }
+}
+function nudge(d) { seek(P.t + d); }
+function nextSec() { const n = curIndex(P.t) + 1; if (n < P.secs.length) seek(P.secs[n].time); }
+function prevSec() {
+  const c = curIndex(P.t);
+  if (c >= 0 && P.t - P.secs[c].time > 1.5) seek(P.secs[c].time);
+  else if (c > 0) seek(P.secs[c - 1].time);
+  else seek(0);
+}
+/* ---------- keep the screen awake, all the time the app is open ----------
+   1st choice: the Screen Wake Lock API (works when the app is opened from a web address, https).
+   Fallback (e.g. opened as a local file on Android): a tiny looping video with a silent sound track,
+   started on the first tap or key press, which makes Android keep the screen on as for any playing video. */
+const AWAKE = { lock: null, video: null, clip: null, busy: false, mode: 'starting' };
+function setAwakeMode(m) { AWAKE.mode = m; const el = $('#awakeStatus'); if (el) el.textContent = awakeText(); }
+function awakeText() {
+  return { lock: 'On (screen wake lock)', video: 'On (video method)', waiting: 'Waiting for the first tap…', starting: 'Starting…', none: 'Not available in this browser' }[AWAKE.mode];
+}
+async function keepAwake(fromGesture) {
+  if (document.visibilityState !== 'visible' || AWAKE.busy) return;
+  if (AWAKE.lock || (AWAKE.video && !AWAKE.video.paused)) return;
+  AWAKE.busy = true;
+  try {
+    if ('wakeLock' in navigator) {
+      try {
+        AWAKE.lock = await navigator.wakeLock.request('screen');
+        AWAKE.lock.addEventListener('release', () => { AWAKE.lock = null; if (document.visibilityState === 'visible') setTimeout(() => keepAwake(false), 500); });
+        setAwakeMode('lock');
+        return;
+      } catch (e) { /* refused (often: not opened from https) */ }
+    }
+    if (!fromGesture) { setAwakeMode('waiting'); return; }   // the video needs a tap to start
+    await startAwakeVideo();
+  } finally { AWAKE.busy = false; }
+}
+async function makeAwakeClip() {          // records a 2-second 16×16 black video with a silent sound track
+  const c = document.createElement('canvas'); c.width = c.height = 16;
+  const ctx = c.getContext('2d');
+  const tracks = [...c.captureStream(10).getVideoTracks()];
+  let ac = null;
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)(); await ac.resume();
+    const osc = ac.createOscillator(), gain = ac.createGain(), dest = ac.createMediaStreamDestination();
+    gain.gain.value = 0; osc.connect(gain).connect(dest); osc.start();
+    tracks.push(...dest.stream.getAudioTracks());
+  } catch (e) { /* video only */ }
+  const rec = new MediaRecorder(new MediaStream(tracks)), chunks = [];
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r => { rec.onstop = r; });
+  let n = 0; const iv = setInterval(() => { ctx.fillStyle = (n++ % 2) ? '#000' : '#020202'; ctx.fillRect(0, 0, 16, 16); }, 100);
+  rec.start(); await new Promise(r => setTimeout(r, 1500)); rec.stop(); await stopped; clearInterval(iv);
+  if (ac) ac.close().catch(() => {});
+  return URL.createObjectURL(new Blob(chunks, { type: rec.mimeType || 'video/webm' }));
+}
+async function startAwakeVideo() {
+  try {
+    if (!AWAKE.video) {
+      const v = document.createElement('video');
+      v.loop = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.setAttribute('aria-hidden', 'true'); v.title = '';
+      v.style.cssText = 'position:fixed;right:0;bottom:0;width:16px;height:16px;opacity:.01;pointer-events:none;z-index:2147483647';
+      // recorded clips may not report a length, so restart them by hand as well
+      v.addEventListener('ended', () => { v.currentTime = 0; v.play().catch(() => {}); });
+      document.body.append(v); AWAKE.video = v;
+    }
+    if (!AWAKE.clip) { AWAKE.clip = await makeAwakeClip(); AWAKE.video.src = AWAKE.clip; }
+    const v = AWAKE.video;
+    v.muted = false; v.volume = 1;          // the sound track is silent; "unmuted" makes Android treat it as real playback
+    try { await v.play(); } catch (e) { v.muted = true; await v.play(); }
+    setAwakeMode('video');
+  } catch (e) { console.warn('Keep-awake video failed', e); setAwakeMode('none'); }
+}
+function toggleFS() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else ($('#perform').requestFullscreen?.() || Promise.reject(new Error('not supported'))).catch(e => { $('#pKey').textContent = 'Fullscreen: ' + e.message; });
+}
+
+/* ================= Wiring ================= */
+$('#newSongBtn').addEventListener('click', newSong);
+$('#importBtn').addEventListener('click', () => $('#importInput').click());
+$('#importInput').addEventListener('change', e => { importFiles([...e.target.files]); e.target.value = ''; });
+
+$('#pClose').addEventListener('click', closePerform);
+// in Live, Play starts from the selected section (if any), like the right pedal; while playing it pauses
+$('#pPlay').addEventListener('click', () => { if (P.mode === 'live' && !P.playing) liveForward(); else togglePlay(); });
+$('#pRestart').addEventListener('click', () => seek(0));
+$('#pBack').addEventListener('click', () => nudge(-5));
+$('#pFwd').addEventListener('click', () => nudge(5));
+$('#pFS').addEventListener('click', toggleFS);
+$('#pMute').addEventListener('click', toggleMute);
+$('#pTheme').addEventListener('click', toggleTheme);
+$('#pedalBtn').addEventListener('click', () => { S.view = 'pedal'; S.sel = null; S.editSec = null; render(); $('#main').scrollTop = 0; });
+$('#liveBtn').addEventListener('click', startLive);
+for (let i = 1; i <= 10; i++) $('#pWarn').append(h('option', { value: i }, String(i)));
+$('#pWarn').addEventListener('change', e => { S.settings.warn = +e.target.value; applySettings($('#perform')); saveSettings(); e.target.blur(); });
+$('#settingsBtn').addEventListener('click', () => { S.view = 'settings'; S.sel = null; S.editSec = null; render(); $('#main').scrollTop = 0; });
+$('#pFrameSel').addEventListener('change', e => { S.settings.frame = e.target.value; saveSettings(); e.target.blur(); requestAnimationFrame(fitPerform); });
+// buttons must not keep focus, or Space would press them again
+$('#perform').addEventListener('click', e => { const b = e.target.closest('button'); if (b) b.blur(); });
+pframe().addEventListener('wheel', e => { if (P.playing) return; e.preventDefault(); P.manual += e.deltaY; }, { passive: false });
+let touchY = null;
+pframe().addEventListener('touchstart', e => { touchY = (!P.playing && e.touches.length === 1) ? e.touches[0].clientY : null; }, { passive: true });
+pframe().addEventListener('touchmove', e => {
+  if (touchY == null || P.playing) return;
+  const y = e.touches[0].clientY; P.manual += touchY - y; touchY = y; P.snap = true; e.preventDefault();
+}, { passive: false });
+pframe().addEventListener('touchend', () => { touchY = null; });
+
+document.addEventListener('fullscreenchange', () => {
+  $('#pFS').textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
+  requestAnimationFrame(fitPerform);
+});
+window.addEventListener('resize', () => requestAnimationFrame(fitPerform));
+// the wake lock is dropped whenever the tab is hidden; take it again when coming back
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(false); });
+// any tap or key while playing/live counts as a user gesture, which some browsers need before keeping the screen on
+['pointerdown', 'keydown'].forEach(t => document.addEventListener(t, () => {
+  keepAwake(true);
+}, true));
+
+document.addEventListener('mousedown', e => {
+  if (S.sel && !e.target.closest('.tab.editable, .btool')) clearSel();
+});
+
+document.addEventListener('keydown', e => {
+  if (pedalKey(e)) return;
+  if (P.open) {
+    if (e.target.matches && e.target.matches('input')) return;
+    if (e.target.matches && e.target.matches('select') && e.key !== 'Escape') return;
+    const k = e.key; let handled = true;
+    const act = pedalAct(k);
+    if (P.mode === 'live') {
+      if (act === 'right') liveForward();
+      else if (act === 'left') liveBack();
+      else if (k === ' ' || k === 'Enter') { if (P.playing) pause(); else liveForward(); }
+      else if (k === 'ArrowDown' && !P.playing) liveScroll(1);
+      else if (k === 'ArrowUp' && !P.playing) liveScroll(-1);
+      else if (k === 'Escape') closePerform();
+      else handled = false;
+      if (handled) e.preventDefault();
+      return;
+    }
+    if (k === ' ' || k === 'Enter') togglePlay();
+    else if (act === 'right') nudge(5);
+    else if (act === 'left') nudge(-5);
+    else if (k === 'ArrowDown' || k === 'PageDown') nextSec();
+    else if (k === 'ArrowUp' || k === 'PageUp') prevSec();
+    else if (k === '.' || k === ']') nudge(0.25);
+    else if (k === ',' || k === '[') nudge(-0.25);
+    else if (k === 'Home') seek(0);
+    else if (k === 'm' || k === 'M') toggleMute();
+    else if (k === 'Escape') closePerform();
+    else handled = false;
+    $('#pKey').textContent = 'Key: ' + (k === ' ' ? 'Space' : k);
+    if (handled) e.preventDefault();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+    if (e.target.matches && e.target.matches('input, textarea')) return; // native undo while typing
+    e.preventDefault(); undo();
+  }
+});
+
+window.addEventListener('beforeunload', e => {
+  if (S.dir && Object.values(S.timers).length && ($('#status')?.textContent || '').startsWith('Saving')) { e.preventDefault(); e.returnValue = ''; }
+});
+
+initFolder();
+keepAwake(false);
+// installable app: register the offline helper when the page comes from a web address (not a local file)
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker failed', e));
+}
+</script>
+</body>
+</html>
