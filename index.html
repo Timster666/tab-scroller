@@ -121,7 +121,8 @@ li.active .songbtn{background:var(--panel2);border-color:var(--line);box-shadow:
 .tab.editable .cell{cursor:pointer}
 .tab.editable .cell:hover{background:rgba(255,255,255,.08)}
 .tab.editable .cell.sel{background:var(--greenbg);color:var(--chalk)}
-.tab.editable:focus .cell.sel{background:var(--green);color:#0c1a12;font-weight:700}
+.tab.editable:focus .cell.sel,.tab.editable.typing .cell.sel{background:var(--green);color:#0c1a12;font-weight:700}
+#cellInput{position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;font-size:16px;pointer-events:none}
 .tab.editable:focus{box-shadow:0 0 0 1px var(--line)}
 .hint{font-size:12px;color:var(--mute);margin-top:4px}
 
@@ -304,6 +305,7 @@ const DEFAULT_SETTINGS = {
   light: { fg: '#1d2126', bg: '#f7f5f0', timeColor: '#6b7280', dashColor: '#b8b4aa', activeBg: '#cdecd9', warnBg: '#f3d27a' },
   pedalLeft: 'ArrowLeft', pedalRight: 'ArrowRight'
 };
+const APP_VERSION = '2026-10-03 (touch editing)';
 const DEFAULT_COLS = 40, MIN_COLS = 4, MAX_COLS = 200;
 const FORMAT = 'tab-scroller-song';
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -858,11 +860,16 @@ function tabGrid(b, editable, song) {
   }
   if (editable) {
     g.tabIndex = 0;
+    g.addEventListener('pointerdown', e => { lastPointer = e.pointerType; });
     g.addEventListener('mousedown', e => {
       const cell = e.target.closest('.cell'); if (!cell) return;
       e.preventDefault();
       selectCell(g, b, +cell.dataset.s, +cell.dataset.c);
-      g.focus({ preventScroll: true });
+      if (lastPointer !== 'touch' && lastPointer !== 'pen') g.focus({ preventScroll: true });
+    });
+    // on a touch screen, typing goes through a hidden text field so the on-screen keyboard appears
+    g.addEventListener('click', e => {
+      if ((lastPointer === 'touch' || lastPointer === 'pen') && e.target.closest('.cell') && selIn(b)) startCellInput(b.id);
     });
     g.addEventListener('keydown', e => gridKey(e, g, b, song));
   }
@@ -871,6 +878,47 @@ function tabGrid(b, editable, song) {
 // Stored labels are 1 = thin E (top line) … 6 = thick E (bottom line); on screen they're shown
 // the other way round, so the bottom line reads 1 and the top line reads 6.
 const stringName = l => /^[1-6]$/.test(l) ? String(7 - +l) : l;
+/* ---------- typing frets with the on-screen keyboard (tablet) ---------- */
+let lastPointer = 'mouse';
+const CI = { blockId: null };
+const cellInput = h('input', { id: 'cellInput', type: 'text', inputmode: 'numeric', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'Fret number' });
+document.body.append(cellInput);
+function ciBlock() {
+  const song = cur(); if (!song || !CI.blockId) return null;
+  for (const sec of song.sections) for (const b of sec.blocks) if (b.id === CI.blockId) return b;
+  return null;
+}
+const ciGrid = () => CI.blockId ? $(`.tab.editable[data-block="${CI.blockId}"]`) : null;
+function resetCellInput() { cellInput.value = ' '; try { cellInput.setSelectionRange(1, 1); } catch (e) { /* ignore */ } }
+function startCellInput(blockId) {
+  CI.blockId = blockId;
+  document.querySelectorAll('.tab.typing').forEach(x => x.classList.remove('typing'));
+  ciGrid()?.classList.add('typing');
+  resetCellInput();
+  cellInput.focus({ preventScroll: true });
+}
+// feed one key to the tab grid, exactly as if it had been typed on a keyboard
+function ciKey(key) {
+  const g = ciGrid(), b = ciBlock();
+  if (!g || !b || !selIn(b)) return;
+  gridKey({ key, preventDefault() {}, ctrlKey: false, metaKey: false, altKey: false }, g, b, cur());
+  ciGrid()?.classList.add('typing');       // the grid may have been redrawn
+}
+cellInput.addEventListener('keydown', e => {   // real keys (hardware keyboard, or keyboards that send them)
+  if (/^\d$/.test(e.key) || ['Backspace', 'Delete', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+    e.preventDefault(); e.stopPropagation(); ciKey(e.key);
+  } else if (e.key === 'Escape') { cellInput.blur(); clearSel(); }
+});
+cellInput.addEventListener('input', e => {      // on-screen keyboards usually only send text changes
+  const v = cellInput.value;
+  if ((e.inputType && e.inputType.startsWith('delete')) || v.length === 0) ciKey('Backspace');
+  else for (const ch of v.slice(1)) { if (/\d/.test(ch)) ciKey(ch); else if (ch === ' ') ciKey(' '); }
+  resetCellInput();
+});
+cellInput.addEventListener('blur', () => {
+  setTimeout(() => { if (document.activeElement !== cellInput) { CI.blockId = null; document.querySelectorAll('.tab.typing').forEach(x => x.classList.remove('typing')); } }, 0);
+});
+
 const cellEl = (g, s, c) => g.children[s].children[c + (g._off || 1)];
 function removeString(song, b, s) {
   if (b.strings.length <= 1) return;
@@ -1177,6 +1225,7 @@ function renderSettings() {
 
   return h('div', { class: 'settings' },
     h('h2', null, 'Settings'),
+    h('p', { class: 'sunit', style: 'margin:-2px 0 8px' }, 'App version ' + APP_VERSION),
     h('p', { class: 'lead' }, 'Sizes are relative to the tab text, which scales to fit the screen. Saved in your songs folder as ' + SETTINGS_FILE + '.'),
     h('div', { id: 'status', 'data-kind': S.statusKind }, S.status),
     h('div', { class: 'srow' }, h('label', null, S.local ? 'Songs' : 'Songs folder'), h('div', { class: 'ctl' }, ...folderControls())),
@@ -1278,7 +1327,8 @@ function render() {
     if (el) { el.focus({ preventScroll: true }); if (el.select) el.select(); }
   } else if (S.sel && S.refocus) {
     const g = $(`.tab.editable[data-block="${S.sel.blockId}"]`);
-    if (g) { g.focus({ preventScroll: true }); const c = g.querySelector('.cell.sel'); if (c) c.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+    if (g && document.activeElement === cellInput) { g.classList.add('typing'); const c = g.querySelector('.cell.sel'); if (c) c.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+    else if (g) { g.focus({ preventScroll: true }); const c = g.querySelector('.cell.sel'); if (c) c.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
   }
   S.refocus = false;
 }
