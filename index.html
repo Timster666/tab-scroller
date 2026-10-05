@@ -322,12 +322,12 @@ const SETTINGS_FILE = '_tab-scroller-settings.json';
 const SETLIST_FILE = '_tab-scroller-setlist.json';
 const THEME_KEYS = ['fg', 'bg', 'timeColor', 'dashColor', 'activeFg', 'activeBg', 'activeTime', 'activeDash', 'warnBg'];
 const DEFAULT_SETTINGS = {
-  titleScale: 80, textScale: 135, showStrings: true, boldNotes: false, tabGap: 0, hold: 10, warn: 3, frame: 'r34', mute: false, theme: 'dark',
+  titleScale: 80, textScale: 135, showStrings: true, boldNotes: false, autoFS: true, tabGap: 0, hold: 10, warn: 3, frame: 'r34', mute: false, theme: 'dark',
   dark:  { fg: '#f1eee6', bg: '#0f1214', timeColor: '#8f98a2', dashColor: '#656664', activeFg: '#f1eee6', activeBg: '#1c382b', activeTime: '#8f98a2', activeDash: '#656664', warnBg: '#69572a' },
   light: { fg: '#1d2126', bg: '#f7f5f0', timeColor: '#6b7280', dashColor: '#b8b4aa', activeFg: '#1d2126', activeBg: '#cdecd9', activeTime: '#6b7280', activeDash: '#b8b4aa', warnBg: '#f3d27a' },
   pedalLeft: 'ArrowLeft', pedalRight: 'ArrowRight'
 };
-const APP_VERSION = '2026-10-05 (active padding)';
+const APP_VERSION = '2026-10-05 (auto fullscreen)';
 const DEFAULT_COLS = 40, MIN_COLS = 4, MAX_COLS = 200;
 const FORMAT = 'tab-scroller-song';
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -636,6 +636,7 @@ function cleanSettings(o) {
   s.theme = o.theme === 'light' ? 'light' : 'dark';
   s.showStrings = o.showStrings !== false;
   s.boldNotes = o.boldNotes === true;
+  s.autoFS = o.autoFS !== false;
   s.tabGap = num(o.tabGap, 0, 60, d.tabGap);
   s.hold = num(o.hold, 0, 60, d.hold); s.warn = num(o.warn, 1, 10, d.warn);
   s.frame = Object.prototype.hasOwnProperty.call(FRAMES, o.frame) ? o.frame : d.frame;
@@ -769,7 +770,7 @@ async function importFiles(files) {
   if (setlist) { orderSongs(setlist); saveSetlist(); }
   if (settings) {
     // pedal keys, screen shape and mute belong to the device, so keep this device's own
-    const keep = { pedalLeft: S.settings.pedalLeft, pedalRight: S.settings.pedalRight, frame: S.settings.frame, mute: S.settings.mute };
+    const keep = { pedalLeft: S.settings.pedalLeft, pedalRight: S.settings.pedalRight, frame: S.settings.frame, mute: S.settings.mute, autoFS: S.settings.autoFS };
     S.settings = Object.assign(cleanSettings(settings), keep);
     saveSettings(); applySettings($('#perform'));
   }
@@ -1267,6 +1268,8 @@ function renderSettings() {
     h('div', { class: 'srow' }, h('label', null, S.local ? 'Songs' : 'Songs folder'), h('div', { class: 'ctl' }, ...folderControls())),
     h('div', { class: 'srow' }, h('label', null, 'Keep screen awake'), h('div', { class: 'ctl' }, h('span', { id: 'awakeStatus', class: 'sunit' }, awakeText()))),
     h('div', { class: 'sgroup' }, 'Playing'),
+    row('Fullscreen automatically', 'autoFS', h('input', { id: 'set-autoFS', type: 'checkbox', checked: s.autoFS,
+      onchange: e => set('autoFS', e.target.checked) }), h('span', { class: 'sunit' }, 'when the preview or live player opens (this device only)')),
     range('Tab title size', 'titleScale', 40, 250),
     range('Text block size', 'textScale', 50, 300),
     row('Show string numbers', 'showStrings', h('input', { id: 'set-showStrings', type: 'checkbox', checked: s.showStrings,
@@ -1514,6 +1517,8 @@ function openPerform(song, from = 0, mode = 'preview') {
   $('#pFrameSel').value = S.settings.frame;
   $('#perform').hidden = false;
   P.open = true; P.playing = false; P.cur = -2; P.warnIdx = -2; P.last = 0; P.selected = null;
+  // the Preview / Live tap counts as permission, so the player can switch to fullscreen by itself
+  if (S.settings.autoFS && !document.fullscreenElement && $('#perform').requestFullscreen) $('#perform').requestFullscreen().catch(() => {});
   setThemeBtn();
   setPlayBtn();
   fitPerform();
