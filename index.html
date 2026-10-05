@@ -122,6 +122,14 @@ li.active .songbtn{background:var(--panel2);border-color:var(--line);box-shadow:
 .tab.editable .cell:hover{background:rgba(255,255,255,.08)}
 .tab.editable .cell.sel{background:var(--greenbg);color:var(--chalk)}
 .tab.editable:focus .cell.sel,.tab.editable.typing .cell.sel{background:var(--green);color:#0c1a12;font-weight:700}
+#updBox{position:fixed;inset:0;z-index:1000;background:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:24px;transition:opacity .4s}
+#updBox.gone{opacity:0;pointer-events:none}
+#updBox .updTitle{font-size:26px;font-weight:700}
+#updBox .updMsg{font-size:17px;max-width:36ch}
+#updBox .updVer{font:13px var(--mono);color:var(--mute)}
+#updBox .spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--steel);border-radius:50%;animation:spin .9s linear infinite}
+#updBox.settled .spin{visibility:hidden}
+@keyframes spin{to{transform:rotate(360deg)}}
 #cellInput{position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;font-size:16px;pointer-events:none}
 .tab.editable:focus{box-shadow:0 0 0 1px var(--line)}
 .hint{font-size:12px;color:var(--mute);margin-top:4px}
@@ -313,7 +321,7 @@ const DEFAULT_SETTINGS = {
   light: { fg: '#1d2126', bg: '#f7f5f0', timeColor: '#6b7280', dashColor: '#b8b4aa', activeFg: '#1d2126', activeBg: '#cdecd9', activeTime: '#6b7280', activeDash: '#b8b4aa', warnBg: '#f3d27a' },
   pedalLeft: 'ArrowLeft', pedalRight: 'ArrowRight'
 };
-const APP_VERSION = '2026-10-05 (bold numbers, tab padding)';
+const APP_VERSION = '2026-10-05 (update check)';
 const DEFAULT_COLS = 40, MIN_COLS = 4, MAX_COLS = 200;
 const FORMAT = 'tab-scroller-song';
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1831,7 +1839,45 @@ initFolder();
 keepAwake(false);
 // installable app: register the offline helper when the page comes from a web address (not a local file)
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
-  navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker failed', e));
+  navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(e => console.warn('Service worker failed', e));
+  checkForUpdate();
+}
+
+// Start-up screen: asks GitHub for the newest index.html and installs it if it's newer than this one
+async function checkForUpdate() {
+  const box = h('div', { id: 'updBox' },
+    h('div', { class: 'updTitle' }, 'Tab Scroller'),
+    h('div', { class: 'spin' }),
+    h('div', { class: 'updMsg' }, 'Checking for a new version…'),
+    h('div', { class: 'updVer' }, 'This version: ' + APP_VERSION));
+  document.body.append(box);
+  box.addEventListener('click', () => box.remove());          // tap to skip
+  const msg = t => { box.querySelector('.updMsg').textContent = t; };
+  const finish = (t, ms) => { msg(t); box.classList.add('settled'); setTimeout(() => box.classList.add('gone'), ms); setTimeout(() => box.remove(), ms + 500); };
+  try {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 6000);
+    const r = await fetch('index.html?fresh=' + Date.now(), { cache: 'no-store', signal: ctl.signal });
+    clearTimeout(timer);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const text = await r.text();
+    const m = text.match(/const APP_VERSION = '([^']+)'/);
+    const latest = m ? m[1] : null;
+    if (!latest || latest === APP_VERSION) { sessionStorage.removeItem('tabScrollerUpdate'); finish('Up to date', 900); return; }
+    if (sessionStorage.getItem('tabScrollerUpdate') === latest) {   // tried once already: don't loop
+      finish(`A new version (${latest}) is on GitHub but couldn't be loaded yet. Try again in a few minutes.`, 4000); return;
+    }
+    msg(`New version found: ${latest}. Downloading…`);
+    for (const name of (await caches.keys()).filter(n => n.startsWith('tab-scroller'))) {
+      const c = await caches.open(name);
+      const page = () => new Response(text, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      await c.put('./', page()); await c.put('./index.html', page());
+    }
+    sessionStorage.setItem('tabScrollerUpdate', latest);
+    msg(`Updated to ${latest}. Restarting…`);
+    setTimeout(() => location.reload(), 900);
+  } catch (e) {
+    finish(navigator.onLine ? 'Couldn’t reach GitHub. Using the saved version.' : 'Offline. Using the saved version.', 1600);
+  }
 }
 </script>
 </body>
