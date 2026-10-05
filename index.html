@@ -161,7 +161,9 @@ li.active .songbtn{background:var(--panel2);border-color:var(--line);box-shadow:
 #perform.live .pbar{background:#5c1f1b;border-bottom-color:#7a2a24;transition:background-color .2s}
 #perform.live.playing .pbar{background:#1c4a2e;border-bottom-color:#2a6a42;animation:livePulse .45s ease-in-out 6 alternate}
 @keyframes livePulse{from{background-color:#1c4a2e}to{background-color:#2f8f55}}
-#pContent{position:relative;padding:.6em 2.5% 0;will-change:transform}
+#pContent{position:relative;padding:.6em 0 0;will-change:transform}
+/* sections run edge to edge in the preview / live player; the settings samples keep their rounded look */
+#pContent .psec{padding-left:.3ch;padding-right:.3ch;border-radius:0}
 .pview{color:var(--pfg)}
 .psec{padding:.45em 1ch .6em;border-radius:.3em;margin-bottom:.35em;cursor:pointer;transition:background-color .3s}
 .psec.current{background:var(--pactive);color:var(--pafg)}
@@ -321,7 +323,7 @@ const DEFAULT_SETTINGS = {
   light: { fg: '#1d2126', bg: '#f7f5f0', timeColor: '#6b7280', dashColor: '#b8b4aa', activeFg: '#1d2126', activeBg: '#cdecd9', activeTime: '#6b7280', activeDash: '#b8b4aa', warnBg: '#f3d27a' },
   pedalLeft: 'ArrowLeft', pedalRight: 'ArrowRight'
 };
-const APP_VERSION = '2026-10-05 (update check)';
+const APP_VERSION = '2026-10-05 (edge to edge)';
 const DEFAULT_COLS = 40, MIN_COLS = 4, MAX_COLS = 200;
 const FORMAT = 'tab-scroller-song';
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1578,8 +1580,9 @@ function fitPerform() {
   const frame = pframe(), W = frame.clientWidth, H = frame.clientHeight;
   let maxCols = 16;
   P.secs.forEach(s => s.blocks.forEach(b => { if (b.type === 'tab') maxCols = Math.max(maxCols, b.cols); }));
-  const needCh = (S.settings.showStrings ? 1.8 : 0) + maxCols * 2.4 + 2.4;   // string numbers + cells + section padding
-  const px = clamp((W * 0.95) / (needCh * chRatio() + 0.45), 4, 46);
+  // width of the widest tab in characters: string numbers (or the pull-left when they're hidden) + cells + the thin side padding
+  const needCh = (S.settings.showStrings ? 1.8 : -0.7) + maxCols * 2.4 + 0.6;
+  const px = clamp((W * 0.995) / (needCh * chRatio()), 4, 60);
   const content = pc();
   content.style.fontSize = px + 'px';
   content.style.paddingBottom = Math.round(H * 0.8) + 'px';
