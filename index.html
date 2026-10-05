@@ -156,7 +156,10 @@ li.active .songbtn{background:var(--panel2);border-color:var(--line);box-shadow:
 #pContent{position:relative;padding:.6em 2.5% 0;will-change:transform}
 .pview{color:var(--pfg)}
 .psec{padding:.45em 1ch .6em;border-radius:.3em;margin-bottom:.35em;cursor:pointer;transition:background-color .3s}
-.psec.current{background:var(--pactive)}
+.psec.current{background:var(--pactive);color:var(--pafg)}
+.psec.current .ptime{color:var(--patime)}
+.psec.current .cell.dash{color:var(--padash)}
+.psec.current .lbl{color:color-mix(in srgb,var(--pafg) 55%,var(--pactive))}
 .psec.warn{background-color:var(--pwarn);animation:warn var(--pwarnDur,3s) ease-in-out 1 both}
 .sample .psec.warn{animation-iteration-count:infinite}
 /* fast fade in, then two slow, smooth pulses down to a see-through version (spread over the warning time) */
@@ -182,6 +185,9 @@ button.ptime:hover{background:rgba(255,255,255,.1);text-decoration:underline dot
 .ptrack{color:var(--mute);font-size:12px;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .psec .pblock + .pblock,.psec .pblock + .textblock,.psec .textblock + .pblock,.psec .textblock + .textblock{margin-top:.5em}
 .psec .tab{font-size:1em;line-height:1.42;padding:0}
+.nolabels .psec .lbl{display:none}
+/* no string numbers: pull the lines left so a one-digit note or dash in the first spot lines up with the title */
+.nolabels .psec .trow{grid-template-columns:repeat(var(--cols),var(--cw));margin-left:calc((var(--cw) - 1ch) / -2)}
 .psec .lbl{color:color-mix(in srgb,var(--pfg) 55%,var(--pbg))}
 .psec .cell.dash{color:var(--pdash)}
 .psec .btitle{font-size:calc(var(--ptitle) * 1em)}
@@ -298,14 +304,14 @@ const LABELS = ['1','2','3','4','5','6']; // top line = string 1 (thin E), botto
 const FRAMES = { r34: 3 / 4, r1016: 10 / 16, r43: 4 / 3, r1610: 16 / 10, fill: 0 };
 const SETTINGS_FILE = '_tab-scroller-settings.json';
 const SETLIST_FILE = '_tab-scroller-setlist.json';
-const THEME_KEYS = ['fg', 'bg', 'timeColor', 'dashColor', 'activeBg', 'warnBg'];
+const THEME_KEYS = ['fg', 'bg', 'timeColor', 'dashColor', 'activeFg', 'activeBg', 'activeTime', 'activeDash', 'warnBg'];
 const DEFAULT_SETTINGS = {
-  titleScale: 80, textScale: 135, hold: 10, warn: 3, frame: 'r34', mute: false, theme: 'dark',
-  dark:  { fg: '#f1eee6', bg: '#0f1214', timeColor: '#8f98a2', dashColor: '#656664', activeBg: '#1c382b', warnBg: '#69572a' },
-  light: { fg: '#1d2126', bg: '#f7f5f0', timeColor: '#6b7280', dashColor: '#b8b4aa', activeBg: '#cdecd9', warnBg: '#f3d27a' },
+  titleScale: 80, textScale: 135, showStrings: true, hold: 10, warn: 3, frame: 'r34', mute: false, theme: 'dark',
+  dark:  { fg: '#f1eee6', bg: '#0f1214', timeColor: '#8f98a2', dashColor: '#656664', activeFg: '#f1eee6', activeBg: '#1c382b', activeTime: '#8f98a2', activeDash: '#656664', warnBg: '#69572a' },
+  light: { fg: '#1d2126', bg: '#f7f5f0', timeColor: '#6b7280', dashColor: '#b8b4aa', activeFg: '#1d2126', activeBg: '#cdecd9', activeTime: '#6b7280', activeDash: '#b8b4aa', warnBg: '#f3d27a' },
   pedalLeft: 'ArrowLeft', pedalRight: 'ArrowRight'
 };
-const APP_VERSION = '2026-10-03 (touch editing)';
+const APP_VERSION = '2026-10-05 (active section colors)';
 const DEFAULT_COLS = 40, MIN_COLS = 4, MAX_COLS = 200;
 const FORMAT = 'tab-scroller-song';
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -606,8 +612,13 @@ function cleanSettings(o) {
     // older settings files kept the (dark) colors at the top level
     const src = (o[th] && typeof o[th] === 'object') ? o[th] : (th === 'dark' ? o : {});
     for (const k of THEME_KEYS) s[th][k] = col(src[k], d[th][k]);
+    // settings saved before the active-section colors existed: start them equal to the normal ones
+    if (!src.activeFg) s[th].activeFg = s[th].fg;
+    if (!src.activeTime) s[th].activeTime = s[th].timeColor;
+    if (!src.activeDash) s[th].activeDash = s[th].dashColor;
   }
   s.theme = o.theme === 'light' ? 'light' : 'dark';
+  s.showStrings = o.showStrings !== false;
   s.hold = num(o.hold, 0, 60, d.hold); s.warn = num(o.warn, 1, 10, d.warn);
   s.frame = Object.prototype.hasOwnProperty.call(FRAMES, o.frame) ? o.frame : d.frame;
   s.mute = o.mute === true;
@@ -620,9 +631,11 @@ function applySettings(el, theme = S.settings.theme) {
   const s = S.settings, c = s[theme];
   el.style.setProperty('--pfg', c.fg); el.style.setProperty('--pbg', c.bg); el.style.setProperty('--ptime', c.timeColor);
   el.style.setProperty('--pactive', c.activeBg); el.style.setProperty('--pwarn', c.warnBg); el.style.setProperty('--pdash', c.dashColor);
+  el.style.setProperty('--pafg', c.activeFg); el.style.setProperty('--patime', c.activeTime); el.style.setProperty('--padash', c.activeDash);
   el.style.setProperty('--psel', theme === 'dark' ? '#ffffff' : c.fg);
   el.style.setProperty('--ptitle', s.titleScale / 100); el.style.setProperty('--ptext', s.textScale / 100);
   el.style.setProperty('--pwarnDur', s.warn + 's');
+  el.classList.toggle('nolabels', !s.showStrings);
 }
 let settingsTimer = 0;
 function saveSettings() {
@@ -1192,7 +1205,9 @@ function sampleSections() {
   [[0, 0, '5'], [0, 3, '7'], [1, 5, '5'], [2, 8, '3'], [1, 10, '12'], [0, 14, '5']].forEach(([a, c, f]) => t1.strings[a][c] = f);
   const t2 = mkTab(18); t2.title = 'Mid part x 4'; t2.strings = t2.strings.slice(2); t2.labels = t2.labels.slice(2);
   [[0, 4, '5'], [1, 1, '7'], [2, 0, '5'], [3, 0, '1'], [2, 9, '12'], [3, 13, '0']].forEach(([a, c, f]) => t2.strings[a][c] = f);
-  const secs = [['00:36', 'psec', [t1]], ['00:52', 'psec current', [Object.assign(mkText(), { text: 'Chorus: strum G C D x 2' })]], ['01:10', 'psec warn', [t2]]];
+  const t3 = mkTab(18); t3.title = 'Chorus riff'; t3.strings = t3.strings.slice(4); t3.labels = t3.labels.slice(4);
+  [[0, 0, '3'], [0, 4, '5'], [1, 2, '3'], [0, 8, '7'], [1, 12, '10'], [0, 15, '3']].forEach(([a, c, f]) => t3.strings[a][c] = f);
+  const secs = [['00:36', 'psec', [t1]], ['00:52', 'psec current', [Object.assign(mkText(), { text: 'Chorus x 2' }), t3]], ['01:10', 'psec warn', [t2]]];
   return secs.map(([tm, cls, blocks]) => h('div', { class: cls }, h('div', { class: 'ptime' }, tm), blocks.map(perfBlock)));
 }
 function renderSettings() {
@@ -1217,7 +1232,8 @@ function renderSettings() {
       oninput: e => { S.settings[th][k] = e.target.value; hex.textContent = e.target.value; refresh(); saveSettings(); } }), hex);
   };
   const COLORS = [['Text color', 'fg'], ['Background color', 'bg'], ['Timestamp color', 'timeColor'], ['Tab dash color', 'dashColor'],
-    ['Active section background', 'activeBg'], ['Next section (warning) background', 'warnBg']];
+    ['Active text color', 'activeFg'], ['Active background color', 'activeBg'], ['Active timestamp color', 'activeTime'], ['Active tab dash color', 'activeDash'],
+    ['Next section (warning) background', 'warnBg']];
   const table = h('div', { class: 'ctable' },
     h('div', { class: 'ch' }), h('div', { class: 'ch' }, 'Dark mode'), h('div', { class: 'ch' }, 'Light mode'),
     COLORS.flatMap(([label, k]) => [h('div', null, label), colorCell('dark', k), colorCell('light', k)]));
@@ -1233,6 +1249,8 @@ function renderSettings() {
     h('div', { class: 'sgroup' }, 'Playing'),
     range('Tab title size', 'titleScale', 40, 250),
     range('Text block size', 'textScale', 50, 300),
+    row('Show string numbers', 'showStrings', h('input', { id: 'set-showStrings', type: 'checkbox', checked: s.showStrings,
+      onchange: e => set('showStrings', e.target.checked) }), h('span', { class: 'sunit' }, 'the 1–6 in front of each tab line')),
     number('Keep previous section visible', 'hold', 0, 60, 'seconds into the current section'),
     number('Warn before next section', 'warn', 1, 10, 'seconds'),
     h('div', { class: 'sgroup' }, 'Colors'),
@@ -1543,7 +1561,7 @@ function fitPerform() {
   const frame = pframe(), W = frame.clientWidth, H = frame.clientHeight;
   let maxCols = 16;
   P.secs.forEach(s => s.blocks.forEach(b => { if (b.type === 'tab') maxCols = Math.max(maxCols, b.cols); }));
-  const needCh = 1.8 + maxCols * 2.4 + 2.4;          // string label + cells + section padding
+  const needCh = (S.settings.showStrings ? 1.8 : 0) + maxCols * 2.4 + 2.4;   // string numbers + cells + section padding
   const px = clamp((W * 0.95) / (needCh * chRatio() + 0.45), 4, 46);
   const content = pc();
   content.style.fontSize = px + 'px';
