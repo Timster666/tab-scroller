@@ -185,6 +185,8 @@ button.ptime:hover{background:rgba(255,255,255,.1);text-decoration:underline dot
 .ptrack{color:var(--mute);font-size:12px;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .psec .pblock + .pblock,.psec .pblock + .textblock,.psec .textblock + .pblock,.psec .textblock + .textblock{margin-top:.5em}
 .psec .tab{font-size:1em;line-height:1.42;padding:0}
+.boldnotes .psec .cell:not(.dash){font-weight:700}
+.psec .btitle + .tab{margin-top:var(--ptabgap,0px)}
 .nolabels .psec .lbl{display:none}
 /* no string numbers: pull the lines left so a one-digit note or dash in the first spot lines up with the title */
 .nolabels .psec .trow{grid-template-columns:repeat(var(--cols),var(--cw));margin-left:calc((var(--cw) - 1ch) / -2)}
@@ -306,12 +308,12 @@ const SETTINGS_FILE = '_tab-scroller-settings.json';
 const SETLIST_FILE = '_tab-scroller-setlist.json';
 const THEME_KEYS = ['fg', 'bg', 'timeColor', 'dashColor', 'activeFg', 'activeBg', 'activeTime', 'activeDash', 'warnBg'];
 const DEFAULT_SETTINGS = {
-  titleScale: 80, textScale: 135, showStrings: true, hold: 10, warn: 3, frame: 'r34', mute: false, theme: 'dark',
+  titleScale: 80, textScale: 135, showStrings: true, boldNotes: false, tabGap: 0, hold: 10, warn: 3, frame: 'r34', mute: false, theme: 'dark',
   dark:  { fg: '#f1eee6', bg: '#0f1214', timeColor: '#8f98a2', dashColor: '#656664', activeFg: '#f1eee6', activeBg: '#1c382b', activeTime: '#8f98a2', activeDash: '#656664', warnBg: '#69572a' },
   light: { fg: '#1d2126', bg: '#f7f5f0', timeColor: '#6b7280', dashColor: '#b8b4aa', activeFg: '#1d2126', activeBg: '#cdecd9', activeTime: '#6b7280', activeDash: '#b8b4aa', warnBg: '#f3d27a' },
   pedalLeft: 'ArrowLeft', pedalRight: 'ArrowRight'
 };
-const APP_VERSION = '2026-10-05 (active section colors)';
+const APP_VERSION = '2026-10-05 (bold numbers, tab padding)';
 const DEFAULT_COLS = 40, MIN_COLS = 4, MAX_COLS = 200;
 const FORMAT = 'tab-scroller-song';
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -619,6 +621,8 @@ function cleanSettings(o) {
   }
   s.theme = o.theme === 'light' ? 'light' : 'dark';
   s.showStrings = o.showStrings !== false;
+  s.boldNotes = o.boldNotes === true;
+  s.tabGap = num(o.tabGap, 0, 60, d.tabGap);
   s.hold = num(o.hold, 0, 60, d.hold); s.warn = num(o.warn, 1, 10, d.warn);
   s.frame = Object.prototype.hasOwnProperty.call(FRAMES, o.frame) ? o.frame : d.frame;
   s.mute = o.mute === true;
@@ -636,6 +640,8 @@ function applySettings(el, theme = S.settings.theme) {
   el.style.setProperty('--ptitle', s.titleScale / 100); el.style.setProperty('--ptext', s.textScale / 100);
   el.style.setProperty('--pwarnDur', s.warn + 's');
   el.classList.toggle('nolabels', !s.showStrings);
+  el.classList.toggle('boldnotes', s.boldNotes);
+  el.style.setProperty('--ptabgap', s.tabGap + 'px');
 }
 let settingsTimer = 0;
 function saveSettings() {
@@ -1251,6 +1257,9 @@ function renderSettings() {
     range('Text block size', 'textScale', 50, 300),
     row('Show string numbers', 'showStrings', h('input', { id: 'set-showStrings', type: 'checkbox', checked: s.showStrings,
       onchange: e => set('showStrings', e.target.checked) }), h('span', { class: 'sunit' }, 'the 1–6 in front of each tab line')),
+    row('Bold tab numbers', 'boldNotes', h('input', { id: 'set-boldNotes', type: 'checkbox', checked: s.boldNotes,
+      onchange: e => set('boldNotes', e.target.checked) }), h('span', { class: 'sunit' }, 'the fret numbers in tabs')),
+    number('Tab top padding', 'tabGap', 0, 60, 'px between a tab title and its tab'),
     number('Keep previous section visible', 'hold', 0, 60, 'seconds into the current section'),
     number('Warn before next section', 'warn', 1, 10, 'seconds'),
     h('div', { class: 'sgroup' }, 'Colors'),
